@@ -4,6 +4,11 @@
              xmlns:local="clr-namespace:StarAchiever.Desktop"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-         
+        <!-- Tema claro (paleta, fuente Nunito y estilos de todos los controles). -->
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Tema.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

@@ -1,10 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Effects;
 using Newtonsoft.Json.Linq;
 
 namespace StarAchiever.Desktop;
@@ -32,9 +35,19 @@ public partial class DashboardWindow : Window
     // valor al id real del estado aprobado si el botón «Aprobar» da error.
     private const int EstadoAprobadaId = 2;
 
+    // La nueva API no tiene un endpoint de ADMIN para asignar docentes a materias/secciones
+    // (api/docente/clases solo sirve para que un DOCENTE vea sus propias clases). Mientras no
+    // exista, la pestaña «Asignaciones» queda deshabilitada y no se llama a la API desde ahí.
+    // Si la API agrega ese endpoint, basta con poner esto en true (y revisar la ruta).
+    private static readonly bool AsignacionesDisponibles = false;
+
+    // Roles del sistema: la posición + 1 es el rolId (ADMIN=1, DOCENTE=2, ESTUDIANTE=3).
+    private static readonly string[] Roles = { "ADMIN", "DOCENTE", "ESTUDIANTE" };
+
     public DashboardWindow()
     {
         InitializeComponent();
+        ColorearMensajesDeEstado();
         Cargar();
     }
 
@@ -60,13 +73,20 @@ public partial class DashboardWindow : Window
     private async void Cargar()
     {
         // Datos del usuario logueado
-        lblNombre.Text = ApiService.NombreUsuario ?? "Usuario";
+        var nombre = ApiService.NombreUsuario ?? "Usuario";
+        lblNombre.Text = nombre;
+        lblInicial.Text = string.IsNullOrWhiteSpace(nombre) ? "?" : nombre.Trim()[..1].ToUpper();
         lblRolBadge.Text = ApiService.Rol ?? "ROL";
         lblBienvenida.Text = $"Sesión iniciada como {ApiService.Rol}. Datos en vivo desde la API.";
 
         // Por defecto se muestra la vista genérica; el ADMIN usa su propia vista.
         panelGenerico.Visibility = Visibility.Visible;
         panelAdmin.Visibility = Visibility.Collapsed;
+
+        // Asignaciones: formulario oculto y nota visible mientras la API no tenga el endpoint.
+        panelAsignacionesForm.Visibility = AsignacionesDisponibles ? Visibility.Visible : Visibility.Collapsed;
+        panelAsignacionesNota.Visibility = AsignacionesDisponibles ? Visibility.Collapsed : Visibility.Visible;
+        pillAsignaciones.Visibility = AsignacionesDisponibles ? Visibility.Collapsed : Visibility.Visible;
 
         // Según el rol, mostramos un panel distinto
         switch (ApiService.Rol)
@@ -80,9 +100,12 @@ public partial class DashboardWindow : Window
                 await RecargarUsuarios();
                 await RecargarGrados();
                 await RecargarPeriodos();
-                await CargarCombosAsignacion();
-                await RecargarAsignaciones();
-                Stat("Gestión", "Materias · Usuarios · Grados · Períodos · Asignaciones");
+                if (AsignacionesDisponibles)
+                {
+                    await CargarCombosAsignacion();
+                    await RecargarAsignaciones();
+                }
+                Stat("Gestión", "Usuarios · Materias · Grados · Períodos");
                 Stat("Rol", "ADMIN");
                 break;
 
@@ -90,7 +113,7 @@ public partial class DashboardWindow : Window
                 lblTitulo.Text = "Panel del Docente";
                 lblSeccion.Text = "Materias disponibles (elige una)";
                 // onSeleccion: al hacer clic en una materia se abre el panel de temas.
-                await CargarLista(listaDatos, lblEstado, "materias", "nombre", "activa", onSeleccion: SeleccionarMateria);
+                await CargarLista(listaDatos, lblEstado, Rutas.Materias, "nombre", "activa", onSeleccion: SeleccionarMateria);
                 // Módulo de actividades (crear, listar, asignar preguntas).
                 panelActividades.Visibility = Visibility.Visible;
                 await CargarModuloActividades();
@@ -114,36 +137,59 @@ public partial class DashboardWindow : Window
         }
     }
 
-    // Crea una tarjeta de stat arriba
+    // Crea una tarjeta de stat arriba: blanca, con un círculo de color y el dato.
     private void Stat(string arriba, string abajo)
     {
-        var border = new Border
+        // Cada tarjeta toma un color distinto de la paleta (teal, morado, amarillo…).
+        var tonos = new[] { Tono.Teal, Tono.Morado, Tono.Amarillo, Tono.Coral };
+        var iconos = new[] { "★", "◆", "●", "▲" };
+        int n = panelStats.Children.Count;
+        var (fuerte, suave) = Ui.Colores(tonos[n % tonos.Length]);
+
+        var icono = new Border
         {
-            CornerRadius = new CornerRadius(14),
-            Padding = new Thickness(22, 16, 22, 16),
-            Margin = new Thickness(0, 0, 14, 0),
-            Background = new LinearGradientBrush(
-                (Color)ColorConverter.ConvertFromString("#3D195B"),
-                (Color)ColorConverter.ConvertFromString("#963CBD"), 45)
+            Width = 38,
+            Height = 38,
+            CornerRadius = new CornerRadius(19),
+            Background = suave,
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = new TextBlock
+            {
+                Text = iconos[n % iconos.Length],
+                FontSize = 16,
+                Foreground = fuerte,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
         };
-        var sp = new StackPanel();
-        sp.Children.Add(new TextBlock
+        var textos = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+        textos.Children.Add(new TextBlock
         {
-            Text = arriba,
+            Text = arriba.ToUpper(),
             FontSize = 11,
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!
+            FontWeight = FontWeights.ExtraBold,
+            Foreground = Paleta.Apagado
         });
-        sp.Children.Add(new TextBlock
+        textos.Children.Add(new TextBlock
         {
             Text = abajo,
-            FontSize = 18,
-            FontWeight = FontWeights.Bold,
-            Foreground = Brushes.White,
-            Margin = new Thickness(0, 4, 0, 0)
+            FontSize = 15,
+            FontWeight = FontWeights.ExtraBold,
+            Foreground = Paleta.Navy,
+            Margin = new Thickness(0, 1, 0, 0)
         });
-        border.Child = sp;
-        panelStats.Children.Add(border);
+
+        var fila = new StackPanel { Orientation = Orientation.Horizontal };
+        fila.Children.Add(icono);
+        fila.Children.Add(textos);
+
+        panelStats.Children.Add(new ContentControl
+        {
+            Style = (Style)FindResource("Tarjeta"),
+            Padding = new Thickness(14, 10, 22, 10),
+            Margin = new Thickness(0, 0, 14, 0),
+            Content = fila
+        });
     }
 
     // Trae una lista de la API y la pinta como filas.
@@ -171,7 +217,11 @@ public partial class DashboardWindow : Window
             foreach (var item in array)
             {
                 var val1 = item[campo1]?.ToString() ?? "-";
-                var val2 = item[campo2]?.ToString() ?? "";
+                // Los campos booleanos (p. ej. "activa") se muestran como Activa / Inactiva.
+                var token2 = item[campo2];
+                var val2 = token2?.Type == JTokenType.Boolean
+                    ? (token2.Value<bool>() ? "Activa" : "Inactiva")
+                    : token2?.ToString() ?? "";
                 // Solo cuando hay acciones (materias del ADMIN) leemos id y activa
                 // para poder editar/eliminar esa materia concreta.
                 int id = item["id"]?.Value<int>() ?? 0;
@@ -193,7 +243,7 @@ public partial class DashboardWindow : Window
     {
         try
         {
-            var res = await ApiService.GetResultAsync("materias");
+            var res = await ApiService.GetResultAsync(Rutas.Materias);
             if (!res.Exito)
             {
                 _materiasData = null;
@@ -225,9 +275,8 @@ public partial class DashboardWindow : Window
             if (filtro.Length > 0 && !nombre.Contains(filtro, StringComparison.OrdinalIgnoreCase)) continue;
 
             int id = item["id"]?.Value<int>() ?? 0;
-            var activaStr = item["activa"]?.ToString() ?? "";
-            bool activa = item["activa"]?.Value<bool>() ?? true;
-            listaMaterias.Items.Add(CrearFila(i++, nombre, activaStr, id, activa, conAcciones: true));
+            bool activa = item["activa"]?.Value<bool?>() ?? true;
+            listaMaterias.Items.Add(CrearFila(i++, nombre, activa ? "Activa" : "Inactiva", id, activa, conAcciones: true));
             mostrados++;
         }
         lblMateriasEstado.Text = filtro.Length > 0
@@ -242,7 +291,7 @@ public partial class DashboardWindow : Window
     {
         try
         {
-            var res = await ApiService.GetResultAsync("usuarios");
+            var res = await ApiService.GetResultAsync(Rutas.Usuarios);
 
             if (!res.Exito)
             {
@@ -278,8 +327,10 @@ public partial class DashboardWindow : Window
             int id = item["id"]?.Value<int>() ?? 0;
             var correo = item["correoOUsuario"]?.ToString() ?? "";
             var rol = item["rol"]?.ToString() ?? "";
-            int rolId = item["rolId"]?.Value<int>() ?? 0;
-            bool activo = item["activo"]?.Value<bool>() ?? true;
+            // Si la lista no trae rolId, lo deducimos del nombre del rol para que
+            // «Editar» no cambie el rol del usuario por accidente.
+            int rolId = item["rolId"]?.Value<int?>() ?? RolIdDesdeNombre(rol);
+            bool activo = item["activo"]?.Value<bool?>() ?? true;
             listaUsuarios.Items.Add(CrearFilaUsuario(i++, id, nombreCompleto, correo, rol, rolId, activo));
             mostrados++;
         }
@@ -290,36 +341,49 @@ public partial class DashboardWindow : Window
 
     private void BuscarUsuario_Changed(object sender, TextChangedEventArgs e) => RenderUsuarios(txtBuscarUsuario.Text);
 
+    // "DOCENTE" -> 2, etc. Devuelve 0 si el nombre no coincide con ningún rol conocido.
+    private static int RolIdDesdeNombre(string rol) =>
+        Array.FindIndex(Roles, r => r.Equals(rol.Trim(), StringComparison.OrdinalIgnoreCase)) + 1;
+
     // ===== ASIGNACIONES DOCENTE-CLASE =====
 
     // Llena los 4 combos (docentes, materias, secciones, períodos) desde la API.
     private async System.Threading.Tasks.Task CargarCombosAsignacion()
     {
-        await LlenarComboAsync(cmbAsigDocente, "usuarios", it =>
-            string.Equals(it["rol"]?.ToString(), "DOCENTE", StringComparison.OrdinalIgnoreCase)
-                ? it["nombreCompleto"]?.ToString() : null);
-
-        await LlenarComboAsync(cmbAsigMateria, "materias", it => it["nombre"]?.ToString());
-
-        await LlenarComboAsync(cmbAsigSeccion, "secciones", it =>
+        var errores = new[]
         {
-            var s = it["nombre"]?.ToString() ?? "";
-            var g = it["grado"]?.ToString();
-            return string.IsNullOrWhiteSpace(g) ? s : $"{s} · {g}";
-        });
+            await LlenarComboAsync(cmbAsigDocente, Rutas.Usuarios, it =>
+                string.Equals(it["rol"]?.ToString(), "DOCENTE", StringComparison.OrdinalIgnoreCase)
+                    ? it["nombreCompleto"]?.ToString() : null),
+            await LlenarComboAsync(cmbAsigMateria, Rutas.Materias, it => it["nombre"]?.ToString()),
+            await LlenarComboAsync(cmbAsigSeccion, Rutas.Secciones, TextoSeccion),
+            await LlenarComboAsync(cmbAsigPeriodo, Rutas.PeriodosAcademicos, it => it["nombre"]?.ToString())
+        };
+        MostrarErroresCombos(lblAsignacionesEstado, errores);
+    }
 
-        await LlenarComboAsync(cmbAsigPeriodo, "periodosacademicos", it => it["nombre"]?.ToString());
+    // "A · Primer grado": nombre de la sección con su grado, para los combos.
+    private static string? TextoSeccion(JToken it)
+    {
+        var s = it["nombre"]?.ToString() ?? "";
+        var g = it["grado"]?.ToString();
+        return string.IsNullOrWhiteSpace(g) ? s : $"{s} · {g}";
     }
 
     // GET a 'ruta' y llena el combo con ComboBoxItem(Content=texto, Tag=id).
     // 'texto' devuelve null para saltarse ese elemento (p. ej. usuarios que no son DOCENTE).
-    private async System.Threading.Tasks.Task LlenarComboAsync(ComboBox combo, string ruta, Func<JToken, string?> texto)
+    // Devuelve null si todo fue bien, o el error real (código + mensaje) si la API falló.
+    private async System.Threading.Tasks.Task<string?> LlenarComboAsync(ComboBox combo, string ruta, Func<JToken, string?> texto)
     {
         combo.Items.Clear();
         try
         {
             var res = await ApiService.GetResultAsync(ruta);
-            if (!res.Exito) return;
+            if (!res.Exito)
+            {
+                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
+                return $"✗ Error {res.Codigo} al cargar /{ruta}: {detalle}";
+            }
             var array = JArray.Parse(res.Contenido);
             foreach (var item in array)
             {
@@ -329,8 +393,21 @@ public partial class DashboardWindow : Window
                 combo.Items.Add(new ComboBoxItem { Content = t, Tag = id });
             }
             if (combo.Items.Count > 0) combo.SelectedIndex = 0;
+            return null;
         }
-        catch { /* si falla, el combo queda vacío; el error se verá al asignar */ }
+        catch (Exception ex)
+        {
+            return $"✗ No se pudo cargar /{ruta}: {ex.Message}";
+        }
+    }
+
+    // Si algún combo no se pudo llenar, antepone el/los errores al texto de la etiqueta de estado.
+    private static void MostrarErroresCombos(TextBlock estado, IEnumerable<string?> errores)
+    {
+        // (sin repetir un error que ya se está mostrando)
+        var texto = string.Join("\n", errores.Where(e => e != null && !(estado.Text ?? "").Contains(e)));
+        if (texto.Length == 0) return;
+        estado.Text = string.IsNullOrWhiteSpace(estado.Text) ? texto : texto + "\n" + estado.Text;
     }
 
     private static int TagCombo(ComboBox combo) =>
@@ -416,9 +493,7 @@ public partial class DashboardWindow : Window
 
     private async void EliminarAsignacion(int id, string resumen)
     {
-        var confirmar = MessageBox.Show($"¿Eliminar la asignación:\n{resumen}?",
-            "Confirmar eliminación", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirmar != MessageBoxResult.Yes) return;
+        if (!Confirmar("Eliminar asignación", $"¿Eliminar la asignación:\n{resumen}?")) return;
 
         try
         {
@@ -442,61 +517,13 @@ public partial class DashboardWindow : Window
 
     private Border CrearFilaAsignacion(int num, int id, string docente, string materia, string seccion, string periodo)
     {
-        var border = new Border
-        {
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(16, 12, 16, 12),
-            Margin = new Thickness(6, 5, 6, 5),
-            Background = (Brush)new BrushConverter().ConvertFrom("#1A2142")!
-        };
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var numBlock = new TextBlock
-        {
-            Text = num.ToString(),
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
-        info.Children.Add(new TextBlock
-        {
-            Text = docente,
-            Foreground = Brushes.White,
-            FontSize = 14,
-            FontWeight = FontWeights.SemiBold,
-            TextWrapping = TextWrapping.Wrap
-        });
-        info.Children.Add(new TextBlock
-        {
-            Text = $"{materia}  ·  Sección {seccion}  ·  {periodo}",
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#8891B0")!,
-            FontSize = 12,
-            Margin = new Thickness(0, 2, 0, 0),
-            TextWrapping = TextWrapping.Wrap
-        });
+        var info = Ui.Info(docente, $"{materia}  ·  Sección {seccion}  ·  {periodo}");
 
         var resumen = $"{docente} — {materia} / Sección {seccion} / {periodo}";
-        var btnEliminar = new Button
-        {
-            Content = "🗑 Eliminar",
-            Style = (Style)FindResource("BtnAccion"),
-            Background = (Brush)new BrushConverter().ConvertFrom("#FF3B5C")!,
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        var btnEliminar = Ui.Accion("🗑 Eliminar", Tono.Coral);
         btnEliminar.Click += (_, _) => EliminarAsignacion(id, resumen);
 
-        Grid.SetColumn(numBlock, 0);
-        Grid.SetColumn(info, 1);
-        Grid.SetColumn(btnEliminar, 2);
-        grid.Children.Add(numBlock);
-        grid.Children.Add(info);
-        grid.Children.Add(btnEliminar);
-        border.Child = grid;
-        return border;
+        return Ui.Fila(num, info, btnEliminar);
     }
 
     // ===== ACTIVIDADES (DOCENTE) =====
@@ -504,9 +531,10 @@ public partial class DashboardWindow : Window
     // Llena el combo de materias y carga la lista de actividades del docente.
     private async System.Threading.Tasks.Task CargarModuloActividades()
     {
-        await LlenarComboAsync(cmbActMateria, "materias", it => it["nombre"]?.ToString());
+        var error = await LlenarComboAsync(cmbActMateria, Rutas.Materias, it => it["nombre"]?.ToString());
         // Al tener materia seleccionada, ActMateria_Changed carga sus temas.
         await RecargarActividades();
+        MostrarErroresCombos(lblActividadesEstado, new[] { error });
     }
 
     // Cuando cambia la materia elegida, recargamos los temas de esa materia en el combo.
@@ -514,7 +542,8 @@ public partial class DashboardWindow : Window
     {
         int materiaId = TagCombo(cmbActMateria);
         if (materiaId <= 0) { cmbActTema.Items.Clear(); return; }
-        await LlenarComboAsync(cmbActTema, $"temas?materiaId={materiaId}", it => it["nombre"]?.ToString());
+        var error = await LlenarComboAsync(cmbActTema, $"temas?materiaId={materiaId}", it => it["nombre"]?.ToString());
+        MostrarErroresCombos(lblActividadesEstado, new[] { error });
     }
 
     private async System.Threading.Tasks.Task RecargarActividades()
@@ -615,25 +644,26 @@ public partial class DashboardWindow : Window
         panelAsignarPreguntas.Visibility = Visibility.Visible;
 
         // Combos de publicación (sección con su grado, y período) + mapa de nombres de sección.
+        // Ojo: en la nueva API Secciones y PeriodosAcademicos son solo ADMIN; si el DOCENTE
+        // no tiene acceso, el error real (p. ej. 403) se muestra bajo «Publicada en».
         await CargarMapaSecciones();
-        await LlenarComboAsync(cmbPubSeccion, "secciones", it =>
+        var errores = new[]
         {
-            var s = it["nombre"]?.ToString() ?? "";
-            var g = it["grado"]?.ToString();
-            return string.IsNullOrWhiteSpace(g) ? s : $"{s} · {g}";
-        });
-        await LlenarComboAsync(cmbPubPeriodo, "periodosacademicos", it => it["nombre"]?.ToString());
+            await LlenarComboAsync(cmbPubSeccion, Rutas.Secciones, TextoSeccion),
+            await LlenarComboAsync(cmbPubPeriodo, Rutas.PeriodosAcademicos, it => it["nombre"]?.ToString())
+        };
 
         await RecargarBancoPreguntas();
         await RecargarPubSecciones();
+        MostrarErroresCombos(lblPublicarEstado, errores);
     }
 
     private void MostrarEstadoActividad(string estado)
     {
         lblEstadoActual.Text = string.IsNullOrWhiteSpace(estado) ? "—" : estado;
-        var (fondo, texto) = ColorEstado(estado);
-        brdEstadoActual.Background = (Brush)new BrushConverter().ConvertFrom(fondo)!;
-        lblEstadoActual.Foreground = (Brush)new BrushConverter().ConvertFrom(texto)!;
+        var (texto, fondo) = Ui.Colores(TonoEstado(estado));
+        brdEstadoActual.Background = fondo;
+        lblEstadoActual.Foreground = texto;
     }
 
     // Carga (una vez por selección) el mapa seccionId -> nombre para las secciones publicadas.
@@ -641,7 +671,7 @@ public partial class DashboardWindow : Window
     {
         try
         {
-            var res = await ApiService.GetResultAsync("secciones");
+            var res = await ApiService.GetResultAsync(Rutas.Secciones);
             if (!res.Exito) return;
             _seccionesNombre.Clear();
             foreach (var s in JArray.Parse(res.Contenido))
@@ -787,32 +817,9 @@ public partial class DashboardWindow : Window
 
     private Border CrearFilaPubSeccion(int num, string seccion, string apertura, string cierre, string intentos, bool activa)
     {
-        var border = new Border
-        {
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(12, 9, 12, 9),
-            Margin = new Thickness(4, 4, 4, 4),
-            Background = (Brush)new BrushConverter().ConvertFrom("#1A2142")!
-        };
-        var sp = new StackPanel();
-        sp.Children.Add(new TextBlock
-        {
-            Text = num + ".  " + (activa ? seccion : $"{seccion}  ·  INACTIVA"),
-            Foreground = activa ? Brushes.White : (Brush)new BrushConverter().ConvertFrom("#FF7A90")!,
-            FontSize = 13,
-            FontWeight = FontWeights.SemiBold,
-            TextWrapping = TextWrapping.Wrap
-        });
-        sp.Children.Add(new TextBlock
-        {
-            Text = $"{apertura}  →  {cierre}   ·   máx. intentos: {intentos}",
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#8891B0")!,
-            FontSize = 11,
-            Margin = new Thickness(0, 2, 0, 0),
-            TextWrapping = TextWrapping.Wrap
-        });
-        border.Child = sp;
-        return border;
+        var info = Ui.Info(seccion, $"{apertura}  →  {cierre}   ·   máx. intentos: {intentos}",
+            activa ? null : Ui.Pill("INACTIVA", Tono.Coral));
+        return Ui.Fila(num, info);
     }
 
     private async System.Threading.Tasks.Task RecargarBancoPreguntas()
@@ -879,138 +886,23 @@ public partial class DashboardWindow : Window
 
     private Border CrearFilaActividad(int num, int id, string titulo, string estado, int cantPreguntas, int temaId, string tema)
     {
-        var border = new Border
-        {
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(16, 12, 16, 12),
-            Margin = new Thickness(6, 5, 6, 5),
-            Background = (Brush)new BrushConverter().ConvertFrom("#1A2142")!
-        };
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var info = Ui.Info(titulo, $"Tema: {tema}  ·  {cantPreguntas} pregunta(s)",
+            Ui.Pill(string.IsNullOrWhiteSpace(estado) ? "—" : estado, TonoEstado(estado)));
 
-        var numBlock = new TextBlock
-        {
-            Text = num.ToString(),
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
-        var linea = new StackPanel { Orientation = Orientation.Horizontal };
-        linea.Children.Add(new TextBlock
-        {
-            Text = titulo,
-            Foreground = Brushes.White,
-            FontSize = 14,
-            FontWeight = FontWeights.SemiBold,
-            VerticalAlignment = VerticalAlignment.Center,
-            TextWrapping = TextWrapping.Wrap
-        });
-        var (fondo, textoColor) = ColorEstado(estado);
-        linea.Children.Add(new Border
-        {
-            CornerRadius = new CornerRadius(6),
-            Background = (Brush)new BrushConverter().ConvertFrom(fondo)!,
-            Padding = new Thickness(8, 2, 8, 2),
-            Margin = new Thickness(10, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock
-            {
-                Text = string.IsNullOrWhiteSpace(estado) ? "—" : estado,
-                Foreground = (Brush)new BrushConverter().ConvertFrom(textoColor)!,
-                FontSize = 10,
-                FontWeight = FontWeights.Bold
-            }
-        });
-        info.Children.Add(linea);
-        info.Children.Add(new TextBlock
-        {
-            Text = $"Tema: {tema}  ·  {cantPreguntas} pregunta(s)",
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#8891B0")!,
-            FontSize = 12,
-            Margin = new Thickness(0, 3, 0, 0),
-            TextWrapping = TextWrapping.Wrap
-        });
-
-        var btnAsignar = new Button
-        {
-            Content = "＋ Preguntas",
-            Style = (Style)FindResource("BtnAccion"),
-            MinWidth = 110,
-            Background = (Brush)new BrushConverter().ConvertFrom("#963CBD")!,
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        var btnAsignar = Ui.Accion("＋ Preguntas", Tono.Morado);
         btnAsignar.Click += (_, _) => SeleccionarActividad(id, titulo, temaId, estado);
 
-        Grid.SetColumn(numBlock, 0);
-        Grid.SetColumn(info, 1);
-        Grid.SetColumn(btnAsignar, 2);
-        grid.Children.Add(numBlock);
-        grid.Children.Add(info);
-        grid.Children.Add(btnAsignar);
-        border.Child = grid;
-        return border;
+        return Ui.Fila(num, info, btnAsignar);
     }
 
     private Border CrearFilaBancoPregunta(int num, int preguntaId, string enunciado, string estado)
     {
-        var border = new Border
-        {
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(12, 9, 12, 9),
-            Margin = new Thickness(4, 4, 4, 4),
-            Background = (Brush)new BrushConverter().ConvertFrom("#1A2142")!
-        };
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var info = Ui.Info(enunciado, string.IsNullOrWhiteSpace(estado) ? null : estado);
 
-        var numBlock = new TextBlock
-        {
-            Text = num.ToString(),
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0) };
-        info.Children.Add(new TextBlock
-        {
-            Text = enunciado,
-            Foreground = Brushes.White,
-            FontSize = 13,
-            TextWrapping = TextWrapping.Wrap
-        });
-        if (!string.IsNullOrWhiteSpace(estado))
-            info.Children.Add(new TextBlock
-            {
-                Text = estado,
-                Foreground = (Brush)new BrushConverter().ConvertFrom("#8891B0")!,
-                FontSize = 11,
-                Margin = new Thickness(0, 2, 0, 0)
-            });
-
-        var btnAgregar = new Button
-        {
-            Content = "＋ Agregar",
-            Style = (Style)FindResource("BtnAccion"),
-            MinWidth = 96,
-            Background = (Brush)new BrushConverter().ConvertFrom("#1E7A4D")!,
-            VerticalAlignment = VerticalAlignment.Center
-        };
+        var btnAgregar = Ui.Accion("＋ Agregar", Tono.Verde);
         btnAgregar.Click += (_, _) => AsignarPreguntaActividad(preguntaId);
 
-        Grid.SetColumn(numBlock, 0);
-        Grid.SetColumn(info, 1);
-        Grid.SetColumn(btnAgregar, 2);
-        grid.Children.Add(numBlock);
-        grid.Children.Add(info);
-        grid.Children.Add(btnAgregar);
-        border.Child = grid;
-        return border;
+        return Ui.Fila(num, info, btnAgregar);
     }
 
     // ===== GRADOS =====
@@ -1019,7 +911,7 @@ public partial class DashboardWindow : Window
     {
         try
         {
-            var res = await ApiService.GetResultAsync("grados");
+            var res = await ApiService.GetResultAsync(Rutas.Grados);
 
             if (!res.Exito)
             {
@@ -1037,8 +929,8 @@ public partial class DashboardWindow : Window
             {
                 int id = item["id"]?.Value<int>() ?? 0;
                 var nombre = item["nombre"]?.ToString() ?? "-";
-                var orden = item["orden"]?.ToString() ?? "";
-                bool activo = item["activo"]?.Value<bool>() ?? true;
+                var orden = item["orden"]?.ToString() ?? ""; // opcional: puede venir null
+                bool activo = item["activo"]?.Value<bool?>() ?? true;
                 listaGrados.Items.Add(CrearFilaGrado(i++, id, nombre, orden, activo));
             }
 
@@ -1058,13 +950,17 @@ public partial class DashboardWindow : Window
             lblGradosEstado.Text = "✗ Escribe un nombre para el grado.";
             return;
         }
-        // Orden: número; si está vacío o no es válido, usamos 1.
-        if (!int.TryParse(txtOrdenGrado.Text.Trim(), out var orden)) orden = 1;
+        // Orden: byte opcional (0-255). Vacío = sin orden.
+        if (!LeerOrden(txtOrdenGrado.Text, out var orden))
+        {
+            lblGradosEstado.Text = "✗ El orden debe ser un número entero entre 0 y 255 (o déjalo vacío).";
+            return;
+        }
 
         btnCrearGrado.IsEnabled = false;
         try
         {
-            var res = await ApiService.PostAsync("grados", new { nombre = nombre, orden = orden, activo = true });
+            var res = await ApiService.PostAsync(Rutas.Grados, CuerpoGrado(nombre, orden, activo: true));
 
             if (res.Exito)
             {
@@ -1089,16 +985,33 @@ public partial class DashboardWindow : Window
         }
     }
 
+    // Lee el orden del grado: vacío => null; un número 0-255 => ese valor; otra cosa => inválido.
+    private static bool LeerOrden(string texto, out byte? orden)
+    {
+        orden = null;
+        texto = texto.Trim();
+        if (texto.Length == 0) return true;
+        if (!byte.TryParse(texto, NumberStyles.None, CultureInfo.InvariantCulture, out var valor)) return false;
+        orden = valor;
+        return true;
+    }
+
+    // Cuerpo de { nombre, orden, activo } para api/Grados. Si no hay orden, el campo
+    // no se envía (es opcional en la API).
+    private static Dictionary<string, object?> CuerpoGrado(string nombre, byte? orden, bool activo)
+    {
+        var cuerpo = new Dictionary<string, object?> { ["nombre"] = nombre, ["activo"] = activo };
+        if (orden.HasValue) cuerpo["orden"] = orden.Value;
+        return cuerpo;
+    }
+
     private async void EliminarGrado(int id, string nombre)
     {
-        var confirmar = MessageBox.Show(
-            $"¿Eliminar el grado \"{nombre}\"?",
-            "Confirmar eliminación", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirmar != MessageBoxResult.Yes) return;
+        if (!Confirmar("Eliminar grado", $"¿Eliminar el grado \"{nombre}\"?")) return;
 
         try
         {
-            var res = await ApiService.DeleteAsync($"grados/{id}");
+            var res = await ApiService.DeleteAsync($"{Rutas.Grados}/{id}");
 
             if (res.Exito)
             {
@@ -1129,7 +1042,7 @@ public partial class DashboardWindow : Window
     {
         _gradoSeleccionadoId = id;
         lblSeccionesInfo.Text = $"Secciones del grado: {nombre}";
-        lblSeccionesTitulo.Text = $"CREAR SECCIÓN EN {nombre.ToUpper()}";
+        lblSeccionesTitulo.Text = $"Nueva sección en {nombre}";
         txtNuevaSeccion.Clear();
         panelSecciones.Visibility = Visibility.Visible;
         await RecargarSecciones();
@@ -1143,7 +1056,7 @@ public partial class DashboardWindow : Window
 
         try
         {
-            var res = await ApiService.GetResultAsync("secciones");
+            var res = await ApiService.GetResultAsync(Rutas.Secciones);
 
             if (!res.Exito)
             {
@@ -1197,7 +1110,7 @@ public partial class DashboardWindow : Window
         btnCrearSeccion.IsEnabled = false;
         try
         {
-            var res = await ApiService.PostAsync("secciones",
+            var res = await ApiService.PostAsync(Rutas.Secciones,
                 new { gradoId = _gradoSeleccionadoId, nombre = nombre, activa = true });
 
             if (res.Exito)
@@ -1224,14 +1137,11 @@ public partial class DashboardWindow : Window
 
     private async void EliminarSeccion(int id, string nombre)
     {
-        var confirmar = MessageBox.Show(
-            $"¿Eliminar la sección \"{nombre}\"?",
-            "Confirmar eliminación", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirmar != MessageBoxResult.Yes) return;
+        if (!Confirmar("Eliminar sección", $"¿Eliminar la sección \"{nombre}\"?")) return;
 
         try
         {
-            var res = await ApiService.DeleteAsync($"secciones/{id}");
+            var res = await ApiService.DeleteAsync($"{Rutas.Secciones}/{id}");
 
             if (res.Exito)
             {
@@ -1250,162 +1160,41 @@ public partial class DashboardWindow : Window
         }
     }
 
-    // Fila de grado: nombre + orden, botón «Secciones» (elige) y «Eliminar».
+    // Fila de grado: nombre + orden, botón «Secciones» (elige), «Editar» y «Eliminar».
     private Border CrearFilaGrado(int num, int id, string nombre, string orden, bool activo)
     {
-        var border = new Border
-        {
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(16, 12, 16, 12),
-            Margin = new Thickness(6, 5, 6, 5),
-            Background = (Brush)new BrushConverter().ConvertFrom("#1A2142")!
-        };
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var info = Ui.Info(nombre, string.IsNullOrWhiteSpace(orden) ? "Sin orden" : $"Orden {orden}",
+            activo ? null : Ui.Pill("INACTIVO", Tono.Coral));
 
-        var numBlock = new TextBlock
-        {
-            Text = num.ToString(),
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        info.Children.Add(new TextBlock
-        {
-            Text = nombre,
-            Foreground = Brushes.White,
-            FontSize = 14,
-            TextWrapping = TextWrapping.Wrap
-        });
-        var sub = $"orden {orden}";
-        if (!activo) sub += "  ·  INACTIVO";
-        info.Children.Add(new TextBlock
-        {
-            Text = sub,
-            Foreground = (Brush)new BrushConverter().ConvertFrom(activo ? "#8891B0" : "#FF7A90")!,
-            FontSize = 12,
-            Margin = new Thickness(0, 2, 12, 0)
-        });
-
-        var acciones = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var btnSecciones = new Button
-        {
-            Content = "◉ Secciones",
-            Style = (Style)FindResource("BtnAccion"),
-            Background = (Brush)new BrushConverter().ConvertFrom("#963CBD")!
-        };
+        var btnSecciones = Ui.Accion("Secciones", Tono.Teal);
         btnSecciones.Click += (_, _) => SeleccionarGrado(id, nombre);
-        var btnEditar = new Button
-        {
-            Content = "✎ Editar",
-            Style = (Style)FindResource("BtnAccion"),
-            Background = (Brush)new BrushConverter().ConvertFrom("#4A5578")!
-        };
+        var btnEditar = Ui.Accion("✎", Tono.Morado, "Editar grado");
         btnEditar.Click += (_, _) => EditarGrado(id, nombre, orden, activo);
-        var btnEliminar = new Button
-        {
-            Content = "🗑 Eliminar",
-            Style = (Style)FindResource("BtnAccion"),
-            Background = (Brush)new BrushConverter().ConvertFrom("#FF3B5C")!
-        };
+        var btnEliminar = Ui.Accion("🗑", Tono.Coral, "Eliminar grado");
         btnEliminar.Click += (_, _) => EliminarGrado(id, nombre);
-        acciones.Children.Add(btnSecciones);
-        acciones.Children.Add(btnEditar);
-        acciones.Children.Add(btnEliminar);
 
-        Grid.SetColumn(numBlock, 0);
-        Grid.SetColumn(info, 1);
-        Grid.SetColumn(acciones, 2);
-        grid.Children.Add(numBlock);
-        grid.Children.Add(info);
-        grid.Children.Add(acciones);
-        border.Child = grid;
-        return border;
+        return Ui.Fila(num, info, btnSecciones, btnEditar, btnEliminar);
     }
 
-    // Fila de sección: nombre + botón «Eliminar».
+    // Fila de sección: nombre + grado, botones «Editar» y «Eliminar».
     private Border CrearFilaSeccion(int num, int id, string nombre, string grado, bool activa)
     {
-        var border = new Border
-        {
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(16, 10, 16, 10),
-            Margin = new Thickness(6, 5, 6, 5),
-            Background = (Brush)new BrushConverter().ConvertFrom("#1A2142")!
-        };
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(32) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var info = Ui.Info(nombre, string.IsNullOrWhiteSpace(grado) ? null : $"Grado: {grado}",
+            activa ? null : Ui.Pill("INACTIVA", Tono.Coral));
 
-        var numBlock = new TextBlock
-        {
-            Text = num.ToString(),
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        // Nombre de la sección + a qué grado pertenece.
-        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
-        info.Children.Add(new TextBlock
-        {
-            Text = activa ? nombre : $"{nombre}  ·  INACTIVA",
-            Foreground = activa ? Brushes.White : (Brush)new BrushConverter().ConvertFrom("#FF7A90")!,
-            FontSize = 13,
-            TextWrapping = TextWrapping.Wrap
-        });
-        info.Children.Add(new TextBlock
-        {
-            Text = string.IsNullOrWhiteSpace(grado) ? "" : $"Grado: {grado}",
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#8891B0")!,
-            FontSize = 11,
-            Margin = new Thickness(0, 2, 0, 0)
-        });
-        var textoBlock = info;
-        var acciones = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var btnEditar = new Button
-        {
-            Content = "✎ Editar",
-            Style = (Style)FindResource("BtnAccion"),
-            Background = (Brush)new BrushConverter().ConvertFrom("#963CBD")!
-        };
+        var btnEditar = Ui.Accion("✎", Tono.Morado, "Editar sección");
         btnEditar.Click += (_, _) => EditarSeccion(id, nombre, activa);
-        var btnEliminar = new Button
-        {
-            Content = "🗑 Eliminar",
-            Style = (Style)FindResource("BtnAccion"),
-            Background = (Brush)new BrushConverter().ConvertFrom("#FF3B5C")!
-        };
+        var btnEliminar = Ui.Accion("🗑", Tono.Coral, "Eliminar sección");
         btnEliminar.Click += (_, _) => EliminarSeccion(id, nombre);
-        acciones.Children.Add(btnEditar);
-        acciones.Children.Add(btnEliminar);
 
-        Grid.SetColumn(numBlock, 0);
-        Grid.SetColumn(textoBlock, 1);
-        Grid.SetColumn(acciones, 2);
-        grid.Children.Add(numBlock);
-        grid.Children.Add(textoBlock);
-        grid.Children.Add(acciones);
-        border.Child = grid;
-        return border;
+        return Ui.Fila(num, info, btnEditar, btnEliminar);
     }
 
-    // Editar grado: PUT /api/grados/{id} con { nombre, orden, activo }.
+    // Editar grado: PUT /api/Grados/{id} con { nombre, orden (opcional), activo }.
     private async void EditarGrado(int id, string nombreActual, string ordenActual, bool activoActual)
     {
         var datos = DialogoCampos("Editar grado",
-            new[] { ("Nombre", nombreActual), ("Orden", ordenActual) }, "Activo", activoActual);
+            new[] { ("Nombre", nombreActual), ("Orden (0-255, opcional)", ordenActual) }, "Activo", activoActual);
         if (datos is null) return;
 
         var (valores, activo) = datos.Value;
@@ -1415,11 +1204,15 @@ public partial class DashboardWindow : Window
             lblGradosEstado.Text = "✗ El nombre del grado no puede quedar vacío.";
             return;
         }
-        if (!int.TryParse(valores[1], out var orden)) orden = 1;
+        if (!LeerOrden(valores[1], out var orden))
+        {
+            lblGradosEstado.Text = "✗ El orden debe ser un número entero entre 0 y 255 (o déjalo vacío).";
+            return;
+        }
 
         try
         {
-            var res = await ApiService.PutAsync($"grados/{id}", new { nombre = nombre, orden = orden, activo = activo });
+            var res = await ApiService.PutAsync($"{Rutas.Grados}/{id}", CuerpoGrado(nombre, orden, activo));
             if (res.Exito)
             {
                 await RecargarGrados();
@@ -1437,7 +1230,7 @@ public partial class DashboardWindow : Window
         }
     }
 
-    // Editar sección: PUT /api/secciones/{id} con { gradoId, nombre, activa }.
+    // Editar sección: PUT /api/Secciones/{id} con { gradoId, nombre, activa }.
     private async void EditarSeccion(int id, string nombreActual, bool activaActual)
     {
         var datos = DialogoCampos("Editar sección",
@@ -1455,7 +1248,7 @@ public partial class DashboardWindow : Window
         try
         {
             // El gradoId se conserva: es el grado seleccionado que estamos gestionando.
-            var res = await ApiService.PutAsync($"secciones/{id}",
+            var res = await ApiService.PutAsync($"{Rutas.Secciones}/{id}",
                 new { gradoId = _gradoSeleccionadoId, nombre = nombre, activa = activa });
             if (res.Exito)
             {
@@ -1480,7 +1273,7 @@ public partial class DashboardWindow : Window
     {
         try
         {
-            var res = await ApiService.GetResultAsync("periodosacademicos");
+            var res = await ApiService.GetResultAsync(Rutas.PeriodosAcademicos);
 
             if (!res.Exito)
             {
@@ -1498,12 +1291,10 @@ public partial class DashboardWindow : Window
             {
                 int id = item["id"]?.Value<int>() ?? 0;
                 var nombre = item["nombre"]?.ToString() ?? "-";
-                var fInicio = item["fechaInicio"]?.ToString() ?? "";
-                var fFin = item["fechaFin"]?.ToString() ?? "";
-                bool activo = item["activo"]?.Value<bool>() ?? true;
-                // Las fechas vienen como "yyyy-MM-ddT..."; recortamos a la parte de fecha.
-                fInicio = RecortarFecha(fInicio);
-                fFin = RecortarFecha(fFin);
+                // DateOnly en la API: llegan como "yyyy-MM-dd".
+                var fInicio = LeerFecha(item["fechaInicio"]);
+                var fFin = LeerFecha(item["fechaFin"]);
+                bool activo = item["activo"]?.Value<bool?>() ?? true;
                 listaPeriodos.Items.Add(CrearFilaPeriodo(i++, id, nombre, fInicio, fFin, activo));
             }
 
@@ -1522,12 +1313,34 @@ public partial class DashboardWindow : Window
         return t > 0 ? valor.Substring(0, t) : valor;
     }
 
-    // Valida "yyyy-MM-dd" y lo normaliza; devuelve null si no es una fecha válida.
+    // Una fecha de la API como "yyyy-MM-dd". Si llegara con hora (Newtonsoft la convierte
+    // en DateTime), también la dejamos solo como fecha.
+    private static string LeerFecha(JToken? valor) =>
+        valor?.Type == JTokenType.Date
+            ? valor.Value<DateTime>().ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)
+            : RecortarFecha(valor?.ToString() ?? "");
+
+    // Formatos aceptados al escribir una fecha (la API usa DateOnly = solo fecha).
+    private static readonly string[] FormatosFecha = { "yyyy-MM-dd", "yyyy-M-d", "dd/MM/yyyy", "d/M/yyyy" };
+
+    // Valida la fecha y la normaliza a "yyyy-MM-dd" (lo que espera DateOnly en la API);
+    // devuelve null si no es una fecha válida.
     private static string? NormalizarFecha(string valor)
     {
-        if (DateOnly.TryParse(valor.Trim(), System.Globalization.CultureInfo.InvariantCulture,
-                System.Globalization.DateTimeStyles.None, out var fecha))
-            return fecha.ToString("yyyy-MM-dd");
+        if (DateOnly.TryParseExact(valor.Trim(), FormatosFecha, CultureInfo.InvariantCulture,
+                DateTimeStyles.None, out var fecha))
+            return fecha.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        return null;
+    }
+
+    // Revisa que las dos fechas sean válidas y que el fin no sea anterior al inicio.
+    // Devuelve el mensaje de error, o null si todo está bien.
+    private static string? ValidarFechasPeriodo(string? fInicio, string? fFin)
+    {
+        if (fInicio is null || fFin is null)
+            return "✗ Fechas inválidas. Usa el formato AAAA-MM-DD (p. ej. 2026-02-15).";
+        if (string.CompareOrdinal(fFin, fInicio) < 0)
+            return "✗ La fecha fin no puede ser anterior a la fecha inicio.";
         return null;
     }
 
@@ -1541,16 +1354,17 @@ public partial class DashboardWindow : Window
         }
         var fInicio = NormalizarFecha(txtFechaInicio.Text);
         var fFin = NormalizarFecha(txtFechaFin.Text);
-        if (fInicio is null || fFin is null)
+        var errorFechas = ValidarFechasPeriodo(fInicio, fFin);
+        if (errorFechas != null)
         {
-            lblPeriodosEstado.Text = "✗ Fechas inválidas. Usa el formato yyyy-MM-dd.";
+            lblPeriodosEstado.Text = errorFechas;
             return;
         }
 
         btnCrearPeriodo.IsEnabled = false;
         try
         {
-            var res = await ApiService.PostAsync("periodosacademicos", new
+            var res = await ApiService.PostAsync(Rutas.PeriodosAcademicos, new
             {
                 nombre = nombre,
                 fechaInicio = fInicio,
@@ -1583,15 +1397,15 @@ public partial class DashboardWindow : Window
         }
     }
 
-    // Editar período: PUT /api/periodosacademicos/{id} con { nombre, fechaInicio, fechaFin, activo }.
+    // Editar período: PUT /api/PeriodosAcademicos/{id} con { nombre, fechaInicio, fechaFin, activo }.
     private async void EditarPeriodo(int id, string nombreActual, string fInicioActual, string fFinActual, bool activoActual)
     {
         var datos = DialogoCampos("Editar período",
             new[]
             {
                 ("Nombre", nombreActual),
-                ("Fecha inicio (yyyy-MM-dd)", fInicioActual),
-                ("Fecha fin (yyyy-MM-dd)", fFinActual)
+                ("Fecha inicio (AAAA-MM-DD)", fInicioActual),
+                ("Fecha fin (AAAA-MM-DD)", fFinActual)
             }, "Activo", activoActual);
         if (datos is null) return;
 
@@ -1604,15 +1418,16 @@ public partial class DashboardWindow : Window
             lblPeriodosEstado.Text = "✗ El nombre del período no puede quedar vacío.";
             return;
         }
-        if (fInicio is null || fFin is null)
+        var errorFechas = ValidarFechasPeriodo(fInicio, fFin);
+        if (errorFechas != null)
         {
-            lblPeriodosEstado.Text = "✗ Fechas inválidas. Usa el formato yyyy-MM-dd.";
+            lblPeriodosEstado.Text = errorFechas;
             return;
         }
 
         try
         {
-            var res = await ApiService.PutAsync($"periodosacademicos/{id}", new
+            var res = await ApiService.PutAsync($"{Rutas.PeriodosAcademicos}/{id}", new
             {
                 nombre = nombre,
                 fechaInicio = fInicio,
@@ -1638,14 +1453,11 @@ public partial class DashboardWindow : Window
 
     private async void EliminarPeriodo(int id, string nombre)
     {
-        var confirmar = MessageBox.Show(
-            $"¿Eliminar el período \"{nombre}\"?",
-            "Confirmar eliminación", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirmar != MessageBoxResult.Yes) return;
+        if (!Confirmar("Eliminar período", $"¿Eliminar el período \"{nombre}\"?")) return;
 
         try
         {
-            var res = await ApiService.DeleteAsync($"periodosacademicos/{id}");
+            var res = await ApiService.DeleteAsync($"{Rutas.PeriodosAcademicos}/{id}");
             if (res.Exito)
             {
                 await RecargarPeriodos();
@@ -1666,195 +1478,220 @@ public partial class DashboardWindow : Window
     // Fila de período: nombre + fechas, botones Editar / Eliminar.
     private Border CrearFilaPeriodo(int num, int id, string nombre, string fInicio, string fFin, bool activo)
     {
-        var border = new Border
-        {
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(16, 12, 16, 12),
-            Margin = new Thickness(6, 5, 6, 5),
-            Background = (Brush)new BrushConverter().ConvertFrom("#1A2142")!
-        };
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var info = Ui.Info(nombre, $"📅  {fInicio}  →  {fFin}",
+            activo ? Ui.Pill("ACTIVO", Tono.Verde) : Ui.Pill("INACTIVO", Tono.Coral));
 
-        var numBlock = new TextBlock
-        {
-            Text = num.ToString(),
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        info.Children.Add(new TextBlock
-        {
-            Text = nombre,
-            Foreground = Brushes.White,
-            FontSize = 14,
-            TextWrapping = TextWrapping.Wrap
-        });
-        var sub = $"{fInicio}  →  {fFin}";
-        if (!activo) sub += "  ·  INACTIVO";
-        info.Children.Add(new TextBlock
-        {
-            Text = sub,
-            Foreground = (Brush)new BrushConverter().ConvertFrom(activo ? "#8891B0" : "#FF7A90")!,
-            FontSize = 12,
-            Margin = new Thickness(0, 2, 12, 0)
-        });
-
-        var acciones = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var btnEditar = new Button
-        {
-            Content = "✎ Editar",
-            Style = (Style)FindResource("BtnAccion"),
-            Background = (Brush)new BrushConverter().ConvertFrom("#963CBD")!
-        };
+        var btnEditar = Ui.Accion("✎ Editar", Tono.Morado);
         btnEditar.Click += (_, _) => EditarPeriodo(id, nombre, fInicio, fFin, activo);
-        var btnEliminar = new Button
-        {
-            Content = "🗑 Eliminar",
-            Style = (Style)FindResource("BtnAccion"),
-            Background = (Brush)new BrushConverter().ConvertFrom("#FF3B5C")!
-        };
+        var btnEliminar = Ui.Accion("🗑 Eliminar", Tono.Coral);
         btnEliminar.Click += (_, _) => EliminarPeriodo(id, nombre);
-        acciones.Children.Add(btnEditar);
-        acciones.Children.Add(btnEliminar);
 
-        Grid.SetColumn(numBlock, 0);
-        Grid.SetColumn(info, 1);
-        Grid.SetColumn(acciones, 2);
-        grid.Children.Add(numBlock);
-        grid.Children.Add(info);
-        grid.Children.Add(acciones);
-        border.Child = grid;
-        return border;
+        return Ui.Fila(num, info, btnEditar, btnEliminar);
     }
 
-    // Diálogo genérico oscuro: N campos de texto + un check. Devuelve (valores, activo) o null.
+    // Diálogo genérico: N campos de texto + un check. Devuelve (valores, activo) o null.
     private (string[] valores, bool activo)? DialogoCampos(
         string titulo, (string etiqueta, string valor)[] campos, string activoLabel, bool activoInicial)
     {
         (string[], bool)? resultado = null;
 
-        var dlg = new Window
-        {
-            Title = titulo,
-            Width = 460,
-            Height = 180 + campos.Length * 74,
-            Owner = this,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            WindowStyle = WindowStyle.None,
-            AllowsTransparency = true,
-            Background = Brushes.Transparent,
-            ResizeMode = ResizeMode.NoResize
-        };
-
-        var marco = new Border
-        {
-            CornerRadius = new CornerRadius(16),
-            Background = (Brush)new BrushConverter().ConvertFrom("#0A0E27")!,
-            Padding = new Thickness(22)
-        };
         var cont = new StackPanel();
-        cont.Children.Add(new TextBlock
-        {
-            Text = titulo.ToUpper(),
-            FontSize = 11,
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            Margin = new Thickness(0, 0, 0, 14)
-        });
-
-        var cajas = new List<TextBox>();
-        foreach (var (etiqueta, valor) in campos)
-        {
-            cont.Children.Add(new TextBlock
-            {
-                Text = etiqueta,
-                FontSize = 11,
-                Foreground = (Brush)new BrushConverter().ConvertFrom("#8891B0")!,
-                Margin = new Thickness(0, 0, 0, 4)
-            });
-            var borde = new Border
-            {
-                Background = (Brush)new BrushConverter().ConvertFrom("#0E1330")!,
-                BorderBrush = (Brush)new BrushConverter().ConvertFrom("#3D2A54")!,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(10),
-                Padding = new Thickness(12, 0, 12, 0),
-                Margin = new Thickness(0, 0, 0, 12)
-            };
-            var caja = new TextBox
-            {
-                Text = valor,
-                Height = 40,
-                VerticalContentAlignment = VerticalAlignment.Center,
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Foreground = Brushes.White,
-                CaretBrush = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-                FontSize = 14
-            };
-            borde.Child = caja;
-            cont.Children.Add(borde);
-            cajas.Add(caja);
-        }
+        var cajas = campos.Select(c => CampoDialogo(cont, c.etiqueta, c.valor)).ToList();
 
         var chk = new CheckBox
         {
             Content = activoLabel,
             IsChecked = activoInicial,
-            Foreground = Brushes.White,
-            FontSize = 13,
-            Margin = new Thickness(2, 2, 0, 0)
+            Margin = new Thickness(2, 4, 0, 0)
         };
         cont.Children.Add(chk);
 
-        var fila = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 20, 0, 0)
-        };
-        var btnCancelar = new Button
-        {
-            Content = "Cancelar",
-            Style = (Style)FindResource("BtnAccion"),
-            Height = 38,
-            MinWidth = 100,
-            Background = (Brush)new BrushConverter().ConvertFrom("#2A3358")!
-        };
+        var dlg = NuevoDialogo(titulo, "Modifica los datos y pulsa «Guardar».", cont,
+            out var btnCancelar, out var btnGuardar, "Guardar", "BtnPrimario");
         btnCancelar.Click += (_, _) => { dlg.DialogResult = false; };
-        var btnGuardar = new Button
-        {
-            Content = "Guardar",
-            Style = (Style)FindResource("BtnAccion"),
-            Height = 38,
-            MinWidth = 100,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#0A0E27")!,
-            Background = (Brush)new BrushConverter().ConvertFrom("#00FF87")!
-        };
         btnGuardar.Click += (_, _) =>
         {
             resultado = (cajas.Select(c => c.Text.Trim()).ToArray(), chk.IsChecked == true);
             dlg.DialogResult = true;
         };
-        fila.Children.Add(btnCancelar);
-        fila.Children.Add(btnGuardar);
-        cont.Children.Add(fila);
-
-        marco.Child = cont;
-        dlg.Content = marco;
         dlg.KeyDown += (_, e) => { if (e.Key == Key.Escape) dlg.DialogResult = false; };
-        if (cajas.Count > 0) { cajas[0].Focus(); cajas[0].SelectAll(); }
+        if (cajas.Count > 0) dlg.Loaded += (_, _) => { cajas[0].Focus(); cajas[0].SelectAll(); };
 
         var ok = dlg.ShowDialog();
         return ok == true ? resultado : null;
+    }
+
+    // Diálogo de confirmación (para eliminar). Devuelve true si el usuario acepta.
+    private bool Confirmar(string titulo, string mensaje)
+    {
+        var cont = new StackPanel();
+        cont.Children.Add(new TextBlock
+        {
+            Text = mensaje,
+            FontSize = 15,
+            FontWeight = FontWeights.SemiBold,
+            TextWrapping = TextWrapping.Wrap
+        });
+        cont.Children.Add(new TextBlock
+        {
+            Text = "Esta acción no se puede deshacer.",
+            FontSize = 13,
+            Foreground = Paleta.Apagado,
+            Margin = new Thickness(0, 6, 0, 0)
+        });
+
+        var dlg = NuevoDialogo(titulo, null, cont,
+            out var btnCancelar, out var btnAceptar, "Sí, eliminar", "BtnPeligro", icono: "!");
+        btnCancelar.Click += (_, _) => { dlg.DialogResult = false; };
+        btnAceptar.Click += (_, _) => { dlg.DialogResult = true; };
+        dlg.KeyDown += (_, e) => { if (e.Key == Key.Escape) dlg.DialogResult = false; };
+        dlg.Loaded += (_, _) => btnCancelar.Focus(); // por seguridad, el foco empieza en «Cancelar»
+
+        return dlg.ShowDialog() == true;
+    }
+
+    // Arma una ventana de diálogo con el estilo claro: tarjeta blanca redondeada con sombra,
+    // título, el contenido recibido y los botones Cancelar / Aceptar abajo a la derecha.
+    private Window NuevoDialogo(string titulo, string? subtitulo, StackPanel contenido,
+        out Button btnCancelar, out Button btnAceptar, string textoAceptar, string estiloAceptar,
+        string? icono = null)
+    {
+        var dlg = new Window
+        {
+            Title = titulo,
+            Width = 500,
+            SizeToContent = SizeToContent.Height,
+            Owner = this,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            WindowStyle = WindowStyle.None,
+            AllowsTransparency = true,
+            Background = Brushes.Transparent,
+            ResizeMode = ResizeMode.NoResize,
+            ShowInTaskbar = false,
+            FontFamily = (FontFamily)FindResource("FuenteApp"),
+            Foreground = Paleta.Navy
+        };
+
+        var cuerpo = new StackPanel();
+
+        // Cabecera: (icono) + título + subtítulo opcional.
+        var cabecera = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 18) };
+        if (icono != null)
+        {
+            var (fuerte, suave) = Ui.Colores(Tono.Coral);
+            cabecera.Children.Add(new Border
+            {
+                Width = 44,
+                Height = 44,
+                CornerRadius = new CornerRadius(22),
+                Background = suave,
+                Margin = new Thickness(0, 0, 14, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new TextBlock
+                {
+                    Text = icono,
+                    FontSize = 22,
+                    FontWeight = FontWeights.Black,
+                    Foreground = fuerte,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            });
+        }
+        var textos = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        textos.Children.Add(new TextBlock { Text = titulo, FontSize = 22, FontWeight = FontWeights.ExtraBold });
+        if (subtitulo != null)
+            textos.Children.Add(new TextBlock
+            {
+                Text = subtitulo,
+                FontSize = 13,
+                Foreground = Paleta.Apagado,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 3, 0, 0)
+            });
+        cabecera.Children.Add(textos);
+        cuerpo.Children.Add(cabecera);
+        cuerpo.Children.Add(contenido);
+
+        var fila = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 24, 0, 0)
+        };
+        btnCancelar = new Button
+        {
+            Content = "Cancelar",
+            Style = (Style)FindResource("BtnSecundario"),
+            MinWidth = 120,
+            Margin = new Thickness(0, 0, 10, 0)
+        };
+        btnAceptar = new Button
+        {
+            Content = textoAceptar,
+            Style = (Style)FindResource(estiloAceptar),
+            MinWidth = 140
+        };
+        fila.Children.Add(btnCancelar);
+        fila.Children.Add(btnAceptar);
+        cuerpo.Children.Add(fila);
+
+        // Sombra en un borde aparte (detrás) para no re-renderizar el contenido con el efecto.
+        var raiz = new Grid { Margin = new Thickness(24) };
+        raiz.Children.Add(new Border
+        {
+            CornerRadius = new CornerRadius(26),
+            Background = Brushes.White,
+            Effect = (Effect)FindResource("SombraSuave")
+        });
+        raiz.Children.Add(new Border
+        {
+            CornerRadius = new CornerRadius(26),
+            Background = Brushes.White,
+            BorderBrush = Paleta.Borde,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(28, 26, 28, 26),
+            Child = cuerpo
+        });
+        dlg.Content = raiz;
+        return dlg;
+    }
+
+    // Agrega a 'cont' una etiqueta + caja de texto (con el estilo del tema) y devuelve la caja.
+    private TextBox CampoDialogo(StackPanel cont, string etiqueta, string valor)
+    {
+        cont.Children.Add(new TextBlock { Text = etiqueta, Style = (Style)FindResource("Etiqueta") });
+        var caja = new TextBox { Text = valor, Margin = new Thickness(0, 0, 0, 14) };
+        cont.Children.Add(caja);
+        return caja;
+    }
+
+    // Los mensajes de estado (✓ / ✗) se muestran en una cajita de color:
+    // verde si salió bien, coral si hubo error, neutra en otro caso; oculta si no hay texto.
+    private void ColorearMensajesDeEstado()
+    {
+        var etiquetas = new[]
+        {
+            lblEstado, lblMateriasEstado, lblUsuariosEstado, lblGradosEstado, lblSeccionesEstado,
+            lblPeriodosEstado, lblAsignacionesEstado, lblTemasEstado, lblSubtemasEstado,
+            lblPreguntaEstado, lblPreguntasEstado, lblActividadesEstado, lblAsignarEstado, lblPublicarEstado
+        };
+        var descriptor = DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock));
+        foreach (var lbl in etiquetas)
+        {
+            if (lbl.Parent is not Border caja) continue;
+            void Pintar()
+            {
+                var texto = lbl.Text ?? "";
+                caja.Visibility = string.IsNullOrWhiteSpace(texto) ? Visibility.Collapsed : Visibility.Visible;
+                var tono = texto.StartsWith("✗") ? Tono.Coral : texto.StartsWith("✓") ? Tono.Verde : Tono.Neutro;
+                var (fuerte, suave) = Ui.Colores(tono);
+                caja.Background = suave;
+                caja.BorderBrush = tono == Tono.Neutro ? Paleta.Borde : fuerte;
+            }
+            descriptor.AddValueChanged(lbl, (_, _) => Pintar());
+            Pintar();
+        }
     }
 
     // Crea una materia (POST real a la API) y refresca la lista para verla al instante.
@@ -1870,8 +1707,8 @@ public partial class DashboardWindow : Window
         btnCrear.IsEnabled = false;
         try
         {
-            // Crear materias es acción de ADMIN (POST api/materias).
-            var res = await ApiService.PostAsync("materias", new { nombre = nombre, activa = true });
+            // Crear materias es acción de ADMIN (POST api/Materias).
+            var res = await ApiService.PostAsync(Rutas.Materias, new { nombre = nombre, activa = true });
 
             if (res.Exito)
             {
@@ -1895,7 +1732,7 @@ public partial class DashboardWindow : Window
         }
     }
 
-    // Crea un usuario (POST /api/usuarios) y refresca la lista de usuarios.
+    // Crea un usuario (POST /api/Usuarios) y refresca la lista de usuarios.
     private async void CrearUsuario_Click(object sender, RoutedEventArgs e)
     {
         var nombreCompleto = txtNombreCompleto.Text.Trim();
@@ -1921,7 +1758,7 @@ public partial class DashboardWindow : Window
         btnCrearUsuario.IsEnabled = false;
         try
         {
-            var res = await ApiService.PostAsync("usuarios", new
+            var res = await ApiService.PostAsync(Rutas.Usuarios, new
             {
                 nombreCompleto = nombreCompleto,
                 correoOUsuario = correoOUsuario,
@@ -1957,96 +1794,20 @@ public partial class DashboardWindow : Window
     private Border CrearFilaUsuario(int num, int id, string nombreCompleto, string correo,
         string rol, int rolId, bool activo)
     {
-        var border = new Border
-        {
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(16, 12, 16, 12),
-            Margin = new Thickness(6, 5, 6, 5),
-            Background = (Brush)new BrushConverter().ConvertFrom("#1A2142")!
-        };
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var numBlock = new TextBlock
-        {
-            Text = num.ToString(),
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-
-        // Nombre + etiqueta de estado (verde activo / gris inactivo), y debajo correo · rol.
-        var info = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        var lineaNombre = new StackPanel { Orientation = Orientation.Horizontal };
-        lineaNombre.Children.Add(new TextBlock
-        {
-            Text = nombreCompleto,
-            Foreground = Brushes.White,
-            FontSize = 14,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalAlignment = VerticalAlignment.Center
-        });
-        lineaNombre.Children.Add(new Border
-        {
-            CornerRadius = new CornerRadius(6),
-            Background = (Brush)new BrushConverter().ConvertFrom(activo ? "#134E2A" : "#2A3358")!,
-            Padding = new Thickness(8, 2, 8, 2),
-            Margin = new Thickness(10, 0, 0, 0),
-            VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock
-            {
-                Text = activo ? "ACTIVO" : "INACTIVO",
-                Foreground = (Brush)new BrushConverter().ConvertFrom(activo ? "#00FF87" : "#8891B0")!,
-                FontSize = 10,
-                FontWeight = FontWeights.Bold
-            }
-        });
-        info.Children.Add(lineaNombre);
+        // Nombre + etiqueta de estado (verde activo / coral inactivo), y debajo correo · rol.
         var sub = string.IsNullOrWhiteSpace(correo) ? rol : $"{correo}  ·  {rol}";
-        info.Children.Add(new TextBlock
-        {
-            Text = sub,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#8891B0")!,
-            FontSize = 12,
-            Margin = new Thickness(0, 3, 12, 0),
-            TextWrapping = TextWrapping.Wrap
-        });
+        var info = Ui.Info(nombreCompleto, sub,
+            activo ? Ui.Pill("ACTIVO", Tono.Verde) : Ui.Pill("INACTIVO", Tono.Coral));
 
-        var acciones = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var btnEditar = new Button
-        {
-            Content = "✎ Editar",
-            Style = (Style)FindResource("BtnAccion"),
-            Background = (Brush)new BrushConverter().ConvertFrom("#963CBD")!
-        };
+        var btnEditar = Ui.Accion("✎ Editar", Tono.Morado);
         btnEditar.Click += (_, _) => EditarUsuario(id, nombreCompleto, correo, rolId, activo);
-        var btnEliminar = new Button
-        {
-            Content = "🗑 Eliminar",
-            Style = (Style)FindResource("BtnAccion"),
-            Background = (Brush)new BrushConverter().ConvertFrom("#FF3B5C")!
-        };
+        var btnEliminar = Ui.Accion("🗑", Tono.Coral, "Eliminar usuario");
         btnEliminar.Click += (_, _) => EliminarUsuario(id, nombreCompleto);
-        acciones.Children.Add(btnEditar);
-        acciones.Children.Add(btnEliminar);
 
-        Grid.SetColumn(numBlock, 0);
-        Grid.SetColumn(info, 1);
-        Grid.SetColumn(acciones, 2);
-        grid.Children.Add(numBlock);
-        grid.Children.Add(info);
-        grid.Children.Add(acciones);
-        border.Child = grid;
-        return border;
+        return Ui.Fila(num, info, btnEditar, btnEliminar);
     }
 
-    // Editar usuario: PUT /api/usuarios/{id} con { nombreCompleto, correoOUsuario, rolId, activo }.
+    // Editar usuario: PUT /api/Usuarios/{id} con { nombreCompleto, correoOUsuario, rolId, activo }.
     // NO cambia la contraseña.
     private async void EditarUsuario(int id, string nombreActual, string correoActual, int rolIdActual, bool activoActual)
     {
@@ -2062,7 +1823,7 @@ public partial class DashboardWindow : Window
 
         try
         {
-            var res = await ApiService.PutAsync($"usuarios/{id}", new
+            var res = await ApiService.PutAsync($"{Rutas.Usuarios}/{id}", new
             {
                 nombreCompleto = nombre,
                 correoOUsuario = correo,
@@ -2087,20 +1848,14 @@ public partial class DashboardWindow : Window
         }
     }
 
-    // Eliminar usuario: DELETE /api/usuarios/{id} (con confirmación).
+    // Eliminar usuario: DELETE /api/Usuarios/{id} (con confirmación).
     private async void EliminarUsuario(int id, string nombre)
     {
-        var confirmar = MessageBox.Show(
-            $"¿Eliminar al usuario \"{nombre}\"?",
-            "Confirmar eliminación",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-
-        if (confirmar != MessageBoxResult.Yes) return;
+        if (!Confirmar("Eliminar usuario", $"¿Eliminar al usuario \"{nombre}\"?")) return;
 
         try
         {
-            var res = await ApiService.DeleteAsync($"usuarios/{id}");
+            var res = await ApiService.DeleteAsync($"{Rutas.Usuarios}/{id}");
 
             if (res.Exito)
             {
@@ -2119,151 +1874,45 @@ public partial class DashboardWindow : Window
         }
     }
 
-    // Diálogo oscuro para editar un usuario (nombre, correo, rol, activo). No pide contraseña.
+    // Diálogo para editar un usuario (nombre, correo, rol, activo). No pide contraseña.
     // Devuelve (nombre, correo, rolId, activo) o null si se cancela.
     private (string nombre, string correo, int rolId, bool activo)? PedirDatosUsuario(
         string nombreActual, string correoActual, int rolIdActual, bool activoActual)
     {
         (string, string, int, bool)? resultado = null;
 
-        var dlg = new Window
-        {
-            Title = "Editar usuario",
-            Width = 460,
-            Height = 420,
-            Owner = this,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            WindowStyle = WindowStyle.None,
-            AllowsTransparency = true,
-            Background = Brushes.Transparent,
-            ResizeMode = ResizeMode.NoResize
-        };
-
-        var marco = new Border
-        {
-            CornerRadius = new CornerRadius(16),
-            Background = (Brush)new BrushConverter().ConvertFrom("#0A0E27")!,
-            Padding = new Thickness(22)
-        };
         var cont = new StackPanel();
-        cont.Children.Add(new TextBlock
-        {
-            Text = "EDITAR USUARIO",
-            FontSize = 11,
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            Margin = new Thickness(0, 0, 0, 14)
-        });
-
-        // Helper local para crear un campo de texto con etiqueta.
-        TextBox CampoTexto(string etiqueta, string valor)
-        {
-            cont.Children.Add(new TextBlock
-            {
-                Text = etiqueta,
-                FontSize = 11,
-                Foreground = (Brush)new BrushConverter().ConvertFrom("#8891B0")!,
-                Margin = new Thickness(0, 0, 0, 4)
-            });
-            var borde = new Border
-            {
-                Background = (Brush)new BrushConverter().ConvertFrom("#0E1330")!,
-                BorderBrush = (Brush)new BrushConverter().ConvertFrom("#3D2A54")!,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(10),
-                Padding = new Thickness(12, 0, 12, 0),
-                Margin = new Thickness(0, 0, 0, 12)
-            };
-            var caja = new TextBox
-            {
-                Text = valor,
-                Height = 40,
-                VerticalContentAlignment = VerticalAlignment.Center,
-                Background = Brushes.Transparent,
-                BorderThickness = new Thickness(0),
-                Foreground = Brushes.White,
-                CaretBrush = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-                FontSize = 14
-            };
-            borde.Child = caja;
-            cont.Children.Add(borde);
-            return caja;
-        }
-
-        var cajaNombre = CampoTexto("Nombre completo", nombreActual);
-        var cajaCorreo = CampoTexto("Usuario o correo", correoActual);
+        var cajaNombre = CampoDialogo(cont, "Nombre completo", nombreActual);
+        var cajaCorreo = CampoDialogo(cont, "Usuario o correo", correoActual);
 
         // Rol
-        cont.Children.Add(new TextBlock
-        {
-            Text = "Rol",
-            FontSize = 11,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#8891B0")!,
-            Margin = new Thickness(0, 0, 0, 4)
-        });
-        var combo = new ComboBox
-        {
-            Style = (Style)FindResource("ComboOscuro"),
-            ItemContainerStyle = (Style)FindResource("ComboItemOscuro"),
-            Margin = new Thickness(0, 0, 0, 12)
-        };
-        combo.Items.Add(new ComboBoxItem { Content = "ADMIN" });
-        combo.Items.Add(new ComboBoxItem { Content = "DOCENTE" });
-        combo.Items.Add(new ComboBoxItem { Content = "ESTUDIANTE" });
+        cont.Children.Add(new TextBlock { Text = "Rol", Style = (Style)FindResource("Etiqueta") });
+        var combo = new ComboBox { Margin = new Thickness(0, 0, 0, 14) };
+        foreach (var rol in Roles) combo.Items.Add(new ComboBoxItem { Content = rol });
         // rolId 1..3 => índice 0..2; si viene fuera de rango, ESTUDIANTE por defecto.
-        combo.SelectedIndex = (rolIdActual >= 1 && rolIdActual <= 3) ? rolIdActual - 1 : 2;
+        combo.SelectedIndex = (rolIdActual >= 1 && rolIdActual <= Roles.Length) ? rolIdActual - 1 : 2;
+        cont.Children.Add(combo);
 
         var chkActivo = new CheckBox
         {
             Content = "Usuario activo",
             IsChecked = activoActual,
-            Foreground = Brushes.White,
-            FontSize = 13,
             Margin = new Thickness(2, 4, 0, 0)
         };
-        cont.Children.Add(combo);
         cont.Children.Add(chkActivo);
 
-        var fila = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 20, 0, 0)
-        };
-        var btnCancelar = new Button
-        {
-            Content = "Cancelar",
-            Style = (Style)FindResource("BtnAccion"),
-            Height = 38,
-            MinWidth = 100,
-            Background = (Brush)new BrushConverter().ConvertFrom("#2A3358")!
-        };
+        var dlg = NuevoDialogo("Editar usuario", "La contraseña no se modifica desde aquí.", cont,
+            out var btnCancelar, out var btnGuardar, "Guardar", "BtnPrimario");
         btnCancelar.Click += (_, _) => { dlg.DialogResult = false; };
-        var btnGuardar = new Button
-        {
-            Content = "Guardar",
-            Style = (Style)FindResource("BtnAccion"),
-            Height = 38,
-            MinWidth = 100,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#0A0E27")!,
-            Background = (Brush)new BrushConverter().ConvertFrom("#00FF87")!
-        };
         btnGuardar.Click += (_, _) =>
         {
             int rolId = combo.SelectedIndex + 1; // 0..2 => 1..3
             resultado = (cajaNombre.Text.Trim(), cajaCorreo.Text.Trim(), rolId, chkActivo.IsChecked == true);
             dlg.DialogResult = true;
         };
-        fila.Children.Add(btnCancelar);
-        fila.Children.Add(btnGuardar);
-        cont.Children.Add(fila);
-
-        marco.Child = cont;
-        dlg.Content = marco;
 
         dlg.KeyDown += (_, e) => { if (e.Key == Key.Escape) dlg.DialogResult = false; };
-        cajaNombre.Focus();
-        cajaNombre.SelectAll();
+        dlg.Loaded += (_, _) => { cajaNombre.Focus(); cajaNombre.SelectAll(); };
 
         var ok = dlg.ShowDialog();
         return ok == true ? resultado : null;
@@ -2471,87 +2120,17 @@ public partial class DashboardWindow : Window
     // Fila de tema (clicable: al pulsar se selecciona) con botones Editar / Eliminar.
     private Border CrearFilaTema(int num, string nombre, int temaId, string orden, bool activo, Action<int, string> onClick)
     {
-        var border = new Border
-        {
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(12, 9, 12, 9),
-            Margin = new Thickness(4, 4, 4, 4),
-            Cursor = Cursors.Hand,
-            Background = (Brush)new BrushConverter().ConvertFrom("#1A2142")!
-        };
-        border.MouseEnter += (_, _) => border.Background = (Brush)new BrushConverter().ConvertFrom("#26305A")!;
-        border.MouseLeave += (_, _) => border.Background = (Brush)new BrushConverter().ConvertFrom("#1A2142")!;
-        // Seleccionar el tema, salvo que el clic venga de un botón de acción de la fila.
-        border.MouseLeftButtonUp += (_, e) => { if (!ClickVieneDeBoton(e.OriginalSource)) onClick(temaId, nombre); };
+        var info = Ui.Info(nombre, null, activo ? null : Ui.Pill("INACTIVO", Tono.Coral));
 
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(28) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-
-        var numBlock = new TextBlock
-        {
-            Text = num.ToString(),
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var textoBlock = new TextBlock
-        {
-            Text = activo ? nombre : $"{nombre}  ·  INACTIVO",
-            Foreground = activo ? Brushes.White : (Brush)new BrushConverter().ConvertFrom("#FF7A90")!,
-            FontSize = 13,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0)
-        };
-
-        var acciones = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var btnEditar = new Button
-        {
-            Content = "✎",
-            Style = (Style)FindResource("BtnAccion"),
-            MinWidth = 40,
-            Background = (Brush)new BrushConverter().ConvertFrom("#963CBD")!
-        };
+        var btnEditar = Ui.Accion("✎", Tono.Morado, "Editar tema");
         btnEditar.Click += (_, _) => EditarTema(temaId, nombre, orden, activo);
-        var btnEliminar = new Button
-        {
-            Content = "🗑",
-            Style = (Style)FindResource("BtnAccion"),
-            MinWidth = 40,
-            Background = (Brush)new BrushConverter().ConvertFrom("#FF3B5C")!
-        };
+        var btnEliminar = Ui.Accion("🗑", Tono.Coral, "Eliminar tema");
         btnEliminar.Click += (_, _) => EliminarTema(temaId, nombre);
-        acciones.Children.Add(btnEditar);
-        acciones.Children.Add(btnEliminar);
 
-        Grid.SetColumn(numBlock, 0);
-        Grid.SetColumn(textoBlock, 1);
-        Grid.SetColumn(acciones, 2);
-        grid.Children.Add(numBlock);
-        grid.Children.Add(textoBlock);
-        grid.Children.Add(acciones);
-        border.Child = grid;
-        return border;
-    }
-
-    // ¿El origen del clic es un Button (o algo dentro de un Button)? Evita seleccionar la fila al pulsar acciones.
-    private static bool ClickVieneDeBoton(object? origen)
-    {
-        var d = origen as DependencyObject;
-        while (d != null)
-        {
-            if (d is Button) return true;
-            d = (d is Visual || d is System.Windows.Media.Media3D.Visual3D)
-                ? VisualTreeHelper.GetParent(d)
-                : LogicalTreeHelper.GetParent(d);
-        }
-        return false;
+        var fila = Ui.Fila(num, info, btnEditar, btnEliminar);
+        // Seleccionar el tema, salvo que el clic venga de un botón de acción de la fila.
+        Ui.HacerClicable(fila, () => onClick(temaId, nombre));
+        return fila;
     }
 
     // ===== TEMAS: editar / eliminar =====
@@ -2591,9 +2170,7 @@ public partial class DashboardWindow : Window
 
     private async void EliminarTema(int id, string nombre)
     {
-        var confirmar = MessageBox.Show($"¿Eliminar el tema \"{nombre}\"?",
-            "Confirmar eliminación", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirmar != MessageBoxResult.Yes) return;
+        if (!Confirmar("Eliminar tema", $"¿Eliminar el tema \"{nombre}\"?")) return;
 
         try
         {
@@ -2708,9 +2285,7 @@ public partial class DashboardWindow : Window
 
     private async void EliminarSubtema(int id, string nombre)
     {
-        var confirmar = MessageBox.Show($"¿Eliminar el subtema \"{nombre}\"?",
-            "Confirmar eliminación", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirmar != MessageBoxResult.Yes) return;
+        if (!Confirmar("Eliminar subtema", $"¿Eliminar el subtema \"{nombre}\"?")) return;
         try
         {
             var res = await ApiService.DeleteAsync($"subtemas/{id}");
@@ -2730,50 +2305,14 @@ public partial class DashboardWindow : Window
 
     private Border CrearFilaSubtema(int num, int id, string nombre, string orden, bool activo)
     {
-        var border = new Border
-        {
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(12, 8, 12, 8),
-            Margin = new Thickness(4, 4, 4, 4),
-            Background = (Brush)new BrushConverter().ConvertFrom("#1A2142")!
-        };
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var info = Ui.Info(nombre, null, activo ? null : Ui.Pill("INACTIVO", Tono.Coral));
 
-        var numBlock = new TextBlock
-        {
-            Text = num.ToString(),
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var textoBlock = new TextBlock
-        {
-            Text = activo ? nombre : $"{nombre}  ·  INACTIVO",
-            Foreground = activo ? Brushes.White : (Brush)new BrushConverter().ConvertFrom("#FF7A90")!,
-            FontSize = 13,
-            TextWrapping = TextWrapping.Wrap,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0)
-        };
-        var acciones = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
-        var btnEditar = new Button { Content = "✎", Style = (Style)FindResource("BtnAccion"), MinWidth = 40, Background = (Brush)new BrushConverter().ConvertFrom("#963CBD")! };
+        var btnEditar = Ui.Accion("✎", Tono.Morado, "Editar subtema");
         btnEditar.Click += (_, _) => EditarSubtema(id, nombre, orden, activo);
-        var btnEliminar = new Button { Content = "🗑", Style = (Style)FindResource("BtnAccion"), MinWidth = 40, Background = (Brush)new BrushConverter().ConvertFrom("#FF3B5C")! };
+        var btnEliminar = Ui.Accion("🗑", Tono.Coral, "Eliminar subtema");
         btnEliminar.Click += (_, _) => EliminarSubtema(id, nombre);
-        acciones.Children.Add(btnEditar);
-        acciones.Children.Add(btnEliminar);
 
-        Grid.SetColumn(numBlock, 0);
-        Grid.SetColumn(textoBlock, 1);
-        Grid.SetColumn(acciones, 2);
-        grid.Children.Add(numBlock);
-        grid.Children.Add(textoBlock);
-        grid.Children.Add(acciones);
-        border.Child = grid;
-        return border;
+        return Ui.Fila(num, info, btnEditar, btnEliminar);
     }
 
     // ===== PREGUNTAS (lista, aprobar, editar, eliminar) =====
@@ -2884,9 +2423,7 @@ public partial class DashboardWindow : Window
     private async void EliminarPregunta(int id, string enunciado)
     {
         var recorte = enunciado.Length > 60 ? enunciado.Substring(0, 60) + "…" : enunciado;
-        var confirmar = MessageBox.Show($"¿Eliminar la pregunta:\n\"{recorte}\"?",
-            "Confirmar eliminación", MessageBoxButton.YesNo, MessageBoxImage.Warning);
-        if (confirmar != MessageBoxResult.Yes) return;
+        if (!Confirmar("Eliminar pregunta", $"¿Eliminar la pregunta:\n\"{recorte}\"?")) return;
         try
         {
             var res = await ApiService.DeleteAsync($"preguntas/{id}");
@@ -2905,187 +2442,79 @@ public partial class DashboardWindow : Window
     }
 
     // Devuelve el color de la etiqueta de estado según su nombre.
-    private static (string fondo, string texto) ColorEstado(string estado)
+    private static Tono TonoEstado(string estado)
     {
         var e = estado.ToLowerInvariant();
-        if (e.Contains("aprob") || e.Contains("public")) return ("#134E2A", "#00FF87"); // verde
-        if (e.Contains("rechaz")) return ("#4E1320", "#FF7A90");                          // rojo
-        if (e.Contains("revis")) return ("#4A3A12", "#FFC24D");                           // ámbar
-        return ("#2A3358", "#8891B0");                                                    // gris (borrador/otros)
+        if (e.Contains("aprob") || e.Contains("public")) return Tono.Verde;
+        if (e.Contains("rechaz")) return Tono.Coral;
+        if (e.Contains("revis")) return Tono.Amarillo;
+        return Tono.Neutro; // borrador / otros
     }
 
     private Border CrearFilaPregunta(int num, int id, string enunciado, string estado)
     {
-        var border = new Border
-        {
-            CornerRadius = new CornerRadius(8),
-            Padding = new Thickness(12, 9, 12, 9),
-            Margin = new Thickness(4, 4, 4, 4),
-            Background = (Brush)new BrushConverter().ConvertFrom("#1A2142")!
-        };
-        var contenido = new StackPanel();
+        // Línea 1: enunciado · Línea 2: etiqueta de estado + botones
+        var contenido = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        contenido.Children.Add(Ui.TextoPrincipal(enunciado, 13.5));
 
-        // Línea 1: número + enunciado
-        var fila1 = new Grid();
-        fila1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(26) });
-        fila1.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        var numBlock = new TextBlock
-        {
-            Text = num.ToString(),
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            VerticalAlignment = VerticalAlignment.Top
-        };
-        var textoBlock = new TextBlock
-        {
-            Text = enunciado,
-            Foreground = Brushes.White,
-            FontSize = 13,
-            TextWrapping = TextWrapping.Wrap
-        };
-        Grid.SetColumn(numBlock, 0);
-        Grid.SetColumn(textoBlock, 1);
-        fila1.Children.Add(numBlock);
-        fila1.Children.Add(textoBlock);
-        contenido.Children.Add(fila1);
-
-        // Línea 2: etiqueta de estado + botones
-        var fila2 = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Margin = new Thickness(26, 8, 0, 0)
-        };
-        var (fondo, textoColor) = ColorEstado(estado);
-        var etiqueta = new Border
-        {
-            CornerRadius = new CornerRadius(6),
-            Background = (Brush)new BrushConverter().ConvertFrom(fondo)!,
-            Padding = new Thickness(8, 3, 8, 3),
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, 8, 0),
-            Child = new TextBlock
-            {
-                Text = string.IsNullOrWhiteSpace(estado) ? "—" : estado,
-                Foreground = (Brush)new BrushConverter().ConvertFrom(textoColor)!,
-                FontSize = 11,
-                FontWeight = FontWeights.Bold
-            }
-        };
+        var fila2 = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 8, 0, 0) };
+        var etiqueta = Ui.Pill(string.IsNullOrWhiteSpace(estado) ? "—" : estado, TonoEstado(estado));
+        etiqueta.Margin = new Thickness(0, 0, 4, 0);
         fila2.Children.Add(etiqueta);
 
-        var btnAprobar = new Button { Content = "✓ Aprobar", Style = (Style)FindResource("BtnAccion"), Background = (Brush)new BrushConverter().ConvertFrom("#1E7A4D")! };
+        var btnAprobar = Ui.Accion("✓ Aprobar", Tono.Verde);
         btnAprobar.Click += (_, _) => AprobarPregunta(id);
-        var btnEditar = new Button { Content = "✎", Style = (Style)FindResource("BtnAccion"), MinWidth = 40, Background = (Brush)new BrushConverter().ConvertFrom("#963CBD")! };
+        var btnEditar = Ui.Accion("✎", Tono.Morado, "Editar pregunta");
         btnEditar.Click += (_, _) => EditarPregunta(id, enunciado);
-        var btnEliminar = new Button { Content = "🗑", Style = (Style)FindResource("BtnAccion"), MinWidth = 40, Background = (Brush)new BrushConverter().ConvertFrom("#FF3B5C")! };
+        var btnEliminar = Ui.Accion("🗑", Tono.Coral, "Eliminar pregunta");
         btnEliminar.Click += (_, _) => EliminarPregunta(id, enunciado);
         fila2.Children.Add(btnAprobar);
         fila2.Children.Add(btnEditar);
         fila2.Children.Add(btnEliminar);
         contenido.Children.Add(fila2);
 
-        border.Child = contenido;
-        return border;
+        return Ui.Fila(num, contenido);
     }
 
     private Border CrearFila(int num, string texto, string extra, int id = 0, bool activa = true,
         bool conAcciones = false, Action<int, string>? onSeleccion = null)
     {
-        var border = new Border
+        // El dato extra va como etiqueta: coral si es «Inactiva», teal en otro caso.
+        var pill = string.IsNullOrWhiteSpace(extra)
+            ? null
+            : Ui.Pill(extra, extra.StartsWith("Inactiv", StringComparison.OrdinalIgnoreCase) ? Tono.Coral : Tono.Teal);
+        var info = Ui.Info(texto, null, pill);
+
+        Border fila;
+        if (conAcciones)
         {
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(16, 12, 16, 12),
-            Margin = new Thickness(6, 5, 6, 5),
-            Background = (Brush)new BrushConverter().ConvertFrom("#1A2142")!
-        };
+            var btnEditar = Ui.Accion("✎ Editar", Tono.Morado);
+            btnEditar.Click += (_, _) => EditarMateria(id, texto, activa);
+            var btnEliminar = Ui.Accion("🗑 Eliminar", Tono.Coral);
+            btnEliminar.Click += (_, _) => EliminarMateria(id, texto);
+            fila = Ui.Fila(num, info, btnEditar, btnEliminar);
+        }
+        else
+        {
+            fila = Ui.Fila(num, info);
+        }
 
         // Fila clicable (p. ej. materias del DOCENTE): al pulsar, se selecciona.
         if (onSeleccion != null)
-        {
-            border.Cursor = Cursors.Hand;
-            border.MouseEnter += (_, _) => border.Background = (Brush)new BrushConverter().ConvertFrom("#26305A")!;
-            border.MouseLeave += (_, _) => border.Background = (Brush)new BrushConverter().ConvertFrom("#1A2142")!;
-            border.MouseLeftButtonUp += (_, _) => onSeleccion(id, texto);
-        }
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(36) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        // Columna extra solo cuando la fila lleva botones de acción.
-        if (conAcciones)
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Ui.HacerClicable(fila, () => onSeleccion(id, texto));
 
-        var numBlock = new TextBlock
-        {
-            Text = num.ToString(),
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var textoBlock = new TextBlock
-        {
-            Text = texto,
-            Foreground = Brushes.White,
-            FontSize = 14,
-            VerticalAlignment = VerticalAlignment.Center
-        };
-        var extraBlock = new TextBlock
-        {
-            Text = extra,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#8891B0")!,
-            FontSize = 12,
-            VerticalAlignment = VerticalAlignment.Center,
-            Margin = new Thickness(0, 0, conAcciones ? 12 : 0, 0)
-        };
-        Grid.SetColumn(numBlock, 0);
-        Grid.SetColumn(textoBlock, 1);
-        Grid.SetColumn(extraBlock, 2);
-        grid.Children.Add(numBlock);
-        grid.Children.Add(textoBlock);
-        grid.Children.Add(extraBlock);
-
-        if (conAcciones)
-        {
-            var acciones = new StackPanel
-            {
-                Orientation = Orientation.Horizontal,
-                VerticalAlignment = VerticalAlignment.Center
-            };
-
-            var btnEditar = new Button
-            {
-                Content = "✎ Editar",
-                Style = (Style)FindResource("BtnAccion"),
-                Background = (Brush)new BrushConverter().ConvertFrom("#963CBD")!
-            };
-            btnEditar.Click += (_, _) => EditarMateria(id, texto, activa);
-
-            var btnEliminar = new Button
-            {
-                Content = "🗑 Eliminar",
-                Style = (Style)FindResource("BtnAccion"),
-                Background = (Brush)new BrushConverter().ConvertFrom("#FF3B5C")!
-            };
-            btnEliminar.Click += (_, _) => EliminarMateria(id, texto);
-
-            acciones.Children.Add(btnEditar);
-            acciones.Children.Add(btnEliminar);
-
-            Grid.SetColumn(acciones, 3);
-            grid.Children.Add(acciones);
-        }
-
-        border.Child = grid;
-        return border;
+        return fila;
     }
 
-    // Editar materia: PUT /api/materias/{id} con { nombre, activa } y refresco.
-    private async void EditarMateria(int id, string nombreActual, bool activa)
+    // Editar materia: PUT /api/Materias/{id} con { nombre, activa } y refresco.
+    private async void EditarMateria(int id, string nombreActual, bool activaActual)
     {
-        var nuevo = PedirNombre(nombreActual);
-        if (nuevo is null) return;            // el usuario canceló
+        var datos = DialogoCampos("Editar materia",
+            new[] { ("Nombre", nombreActual) }, "Materia activa", activaActual);
+        if (datos is null) return;            // el usuario canceló
 
-        nuevo = nuevo.Trim();
+        var (valores, activa) = datos.Value;
+        var nuevo = valores[0];
         if (string.IsNullOrWhiteSpace(nuevo))
         {
             lblMateriasEstado.Text = "✗ El nombre de la materia no puede quedar vacío.";
@@ -3094,8 +2523,7 @@ public partial class DashboardWindow : Window
 
         try
         {
-            // Conservamos el estado 'activa' que ya tenía la materia.
-            var res = await ApiService.PutAsync($"materias/{id}", new { nombre = nuevo, activa = activa });
+            var res = await ApiService.PutAsync($"{Rutas.Materias}/{id}", new { nombre = nuevo, activa = activa });
 
             if (res.Exito)
             {
@@ -3114,20 +2542,14 @@ public partial class DashboardWindow : Window
         }
     }
 
-    // Eliminar materia: DELETE /api/materias/{id} (con confirmación) y refresco.
+    // Eliminar materia: DELETE /api/Materias/{id} (con confirmación) y refresco.
     private async void EliminarMateria(int id, string nombre)
     {
-        var confirmar = MessageBox.Show(
-            $"¿Eliminar la materia \"{nombre}\"?",
-            "Confirmar eliminación",
-            MessageBoxButton.YesNo,
-            MessageBoxImage.Warning);
-
-        if (confirmar != MessageBoxResult.Yes) return;
+        if (!Confirmar("Eliminar materia", $"¿Eliminar la materia \"{nombre}\"?")) return;
 
         try
         {
-            var res = await ApiService.DeleteAsync($"materias/{id}");
+            var res = await ApiService.DeleteAsync($"{Rutas.Materias}/{id}");
 
             if (res.Exito)
             {
@@ -3144,109 +2566,5 @@ public partial class DashboardWindow : Window
         {
             lblMateriasEstado.Text = $"✗ No se pudo eliminar la materia: {ex.Message}";
         }
-    }
-
-    // Mini diálogo (estilo oscuro/morado/verde) para pedir el nuevo nombre.
-    // Devuelve el texto escrito, o null si se cancela.
-    private string? PedirNombre(string actual)
-    {
-        string? resultado = null;
-
-        var dlg = new Window
-        {
-            Title = "Editar materia",
-            Width = 440,
-            Height = 210,
-            Owner = this,
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            WindowStyle = WindowStyle.None,
-            AllowsTransparency = true,
-            Background = Brushes.Transparent,
-            ResizeMode = ResizeMode.NoResize
-        };
-
-        var marco = new Border
-        {
-            CornerRadius = new CornerRadius(16),
-            Background = (Brush)new BrushConverter().ConvertFrom("#0A0E27")!,
-            Padding = new Thickness(22)
-        };
-        var contenido = new StackPanel();
-        contenido.Children.Add(new TextBlock
-        {
-            Text = "EDITAR MATERIA",
-            FontSize = 11,
-            FontWeight = FontWeights.Bold,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            Margin = new Thickness(0, 0, 0, 12)
-        });
-
-        var cajaBorde = new Border
-        {
-            Background = (Brush)new BrushConverter().ConvertFrom("#0E1330")!,
-            BorderBrush = (Brush)new BrushConverter().ConvertFrom("#3D2A54")!,
-            BorderThickness = new Thickness(1),
-            CornerRadius = new CornerRadius(10),
-            Padding = new Thickness(12, 0, 12, 0)
-        };
-        var caja = new TextBox
-        {
-            Text = actual,
-            Height = 42,
-            VerticalContentAlignment = VerticalAlignment.Center,
-            Background = Brushes.Transparent,
-            BorderThickness = new Thickness(0),
-            Foreground = Brushes.White,
-            CaretBrush = (Brush)new BrushConverter().ConvertFrom("#00FF87")!,
-            FontSize = 14
-        };
-        cajaBorde.Child = caja;
-        contenido.Children.Add(cajaBorde);
-
-        var fila = new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 18, 0, 0)
-        };
-        var btnCancelar = new Button
-        {
-            Content = "Cancelar",
-            Style = (Style)FindResource("BtnAccion"),
-            Height = 38,
-            MinWidth = 100,
-            Background = (Brush)new BrushConverter().ConvertFrom("#2A3358")!
-        };
-        btnCancelar.Click += (_, _) => { dlg.DialogResult = false; };
-        var btnGuardar = new Button
-        {
-            Content = "Guardar",
-            Style = (Style)FindResource("BtnAccion"),
-            Height = 38,
-            MinWidth = 100,
-            Foreground = (Brush)new BrushConverter().ConvertFrom("#0A0E27")!,
-            Background = (Brush)new BrushConverter().ConvertFrom("#00FF87")!
-        };
-        btnGuardar.Click += (_, _) => { resultado = caja.Text; dlg.DialogResult = true; };
-
-        fila.Children.Add(btnCancelar);
-        fila.Children.Add(btnGuardar);
-        contenido.Children.Add(fila);
-
-        marco.Child = contenido;
-        dlg.Content = marco;
-
-        // Enter = guardar, Esc = cancelar
-        dlg.KeyDown += (_, e) =>
-        {
-            if (e.Key == Key.Enter) { resultado = caja.Text; dlg.DialogResult = true; }
-            else if (e.Key == Key.Escape) { dlg.DialogResult = false; }
-        };
-
-        caja.Focus();
-        caja.SelectAll();
-
-        var ok = dlg.ShowDialog();
-        return ok == true ? resultado : null;
     }
 }
