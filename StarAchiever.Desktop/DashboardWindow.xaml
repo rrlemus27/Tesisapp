@@ -3,971 +3,849 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Star-Achiever" Height="760" Width="1200"
         WindowStartupLocation="CenterScreen"
-        WindowStyle="None" AllowsTransparency="True" Background="Transparent">
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        FontFamily="{StaticResource FuenteApp}" Foreground="{StaticResource NavyBrush}">
 
-    <Window.Resources>
-        <!-- Botón pequeño para las acciones de cada fila (Editar / Eliminar). -->
-        <Style x:Key="BtnAccion" TargetType="Button">
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="Height" Value="30"/>
-            <Setter Property="MinWidth" Value="80"/>
-            <Setter Property="Margin" Value="6,0,0,0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="8"
-                                Padding="12,0">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Opacity" Value="0.85"/>
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Opacity" Value="0.4"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
+    <Grid Margin="14">
+        <!-- Sombra de la ventana (en un borde aparte, detrás del contenido) -->
+        <Border CornerRadius="28" Background="{StaticResource FondoBrush}" Effect="{StaticResource SombraVentana}"/>
 
-        <!-- Botón verde neón reutilizable para formularios (Crear …). -->
-        <Style x:Key="BtnVerde" TargetType="Button">
-            <Setter Property="Background" Value="#00FF87"/>
-            <Setter Property="Foreground" Value="#0A0E27"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="FontSize" Value="13"/>
-            <Setter Property="Height" Value="42"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border Background="{TemplateBinding Background}" CornerRadius="10">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <Trigger Property="IsMouseOver" Value="True">
-                    <Setter Property="Background" Value="#4DFFB0"/>
-                </Trigger>
-                <Trigger Property="IsEnabled" Value="False">
-                    <Setter Property="Background" Value="#2A3358"/>
-                </Trigger>
-            </Style.Triggers>
-        </Style>
+        <Border CornerRadius="28" Background="{StaticResource FondoBrush}"
+                BorderBrush="{StaticResource BordeBrush}" BorderThickness="1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="250"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
 
-        <!-- ComboBox oscuro (para elegir el rol al crear usuario). -->
-        <Style x:Key="ComboOscuro" TargetType="ComboBox">
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="Height" Value="42"/>
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBox">
-                        <Grid>
-                            <ToggleButton Focusable="False" ClickMode="Press"
-                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
-                                <ToggleButton.Template>
-                                    <ControlTemplate TargetType="ToggleButton">
-                                        <Border Background="#0E1330" CornerRadius="10"
-                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
-                                            <Grid>
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-                                                <ContentPresenter Grid.Column="0" VerticalAlignment="Center"
-                                                    Content="{Binding SelectionBoxItem, RelativeSource={RelativeSource AncestorType=ComboBox}}"
-                                                    ContentTemplate="{Binding SelectionBoxItemTemplate, RelativeSource={RelativeSource AncestorType=ComboBox}}"/>
-                                                <Path Grid.Column="1" VerticalAlignment="Center" Margin="8,0,0,0"
-                                                      Data="M0,0 L8,0 L4,5 Z" Fill="#00FF87"/>
-                                            </Grid>
-                                        </Border>
-                                    </ControlTemplate>
-                                </ToggleButton.Template>
-                            </ToggleButton>
-                            <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
-                                   AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
-                                <Border Background="#151B3B" BorderBrush="#3D2A54" BorderThickness="1"
-                                        CornerRadius="10" Margin="0,4,0,0"
-                                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
-                                    <StackPanel IsItemsHost="True"/>
-                                </Border>
-                            </Popup>
-                        </Grid>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-        <Style x:Key="ComboItemOscuro" TargetType="ComboBoxItem">
-            <Setter Property="Foreground" Value="White"/>
-            <Setter Property="FontSize" Value="14"/>
-            <Setter Property="Padding" Value="12,9"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="ComboBoxItem">
-                        <Border x:Name="cont" Background="Transparent" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsHighlighted" Value="True">
-                                <Setter TargetName="cont" Property="Background" Value="#26305A"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
+                <!-- ===================== SIDEBAR ===================== -->
+                <Border Grid.Column="0" CornerRadius="27,0,0,27" Background="White"
+                        BorderBrush="{StaticResource BordeBrush}" BorderThickness="0,0,1,0">
+                    <Grid Margin="22,26,22,22">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
 
-        <!-- Pestañas oscuras (TabControl / TabItem) -->
-        <Style x:Key="TabsOscuro" TargetType="TabControl">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-        </Style>
-        <Style x:Key="TabItemOscuro" TargetType="TabItem">
-            <Setter Property="Foreground" Value="#8891B0"/>
-            <Setter Property="FontSize" Value="12"/>
-            <Setter Property="FontWeight" Value="Bold"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="TabItem">
-                        <Border x:Name="tab" CornerRadius="10" Background="#151B3B"
-                                Padding="16,9" Margin="0,0,8,10">
-                            <ContentPresenter ContentSource="Header" HorizontalAlignment="Center"
-                                              VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsSelected" Value="True">
-                                <Setter TargetName="tab" Property="Background" Value="#3D195B"/>
-                                <Setter Property="Foreground" Value="#00FF87"/>
-                            </Trigger>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="tab" Property="Background" Value="#26305A"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-    </Window.Resources>
-
-    <Border CornerRadius="18" Background="#0A0E27">
-        <Border.Effect>
-            <DropShadowEffect Color="Black" BlurRadius="30" ShadowDepth="0" Opacity="0.6"/>
-        </Border.Effect>
-
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="240"/>
-                <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
-
-            <!-- ===== SIDEBAR ===== -->
-            <Border Grid.Column="0" CornerRadius="18,0,0,18">
-                <Border.Background>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                        <GradientStop Color="#3D195B" Offset="0"/>
-                        <GradientStop Color="#1A0B2E" Offset="1"/>
-                    </LinearGradientBrush>
-                </Border.Background>
-                <StackPanel Margin="24,30">
-                    <TextBlock Text="★ STAR-ACHIEVER" FontSize="17" FontWeight="Bold" Foreground="White"/>
-                    <Border Height="1" Background="#3D2A54" Margin="0,20"/>
-
-                    <Border Background="#251540" CornerRadius="12" Padding="14" Margin="0,0,0,20">
-                        <StackPanel>
-                            <TextBlock x:Name="lblRolBadge" Text="ROL" FontSize="10" FontWeight="Bold"
-                                       Foreground="#00FF87"/>
-                            <TextBlock x:Name="lblNombre" Text="Usuario" FontSize="15" FontWeight="Bold"
-                                       Foreground="White" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        <!-- Logo -->
+                        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,24">
+                            <Border Width="44" Height="44" CornerRadius="15" Background="{StaticResource AmarilloBrush}">
+                                <TextBlock Text="★" FontSize="22" Foreground="{StaticResource AmarilloTextoBrush}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <StackPanel Margin="11,0,0,0" VerticalAlignment="Center">
+                                <TextBlock Text="Star-Achiever" FontSize="18" FontWeight="ExtraBold"/>
+                                <TextBlock Text="Plataforma educativa" FontSize="12" FontWeight="SemiBold"
+                                           Foreground="{StaticResource ApagadoBrush}"/>
+                            </StackPanel>
                         </StackPanel>
-                    </Border>
 
-                    <TextBlock Text="PANEL" FontSize="10" FontWeight="Bold" Foreground="#6B5A87" Margin="4,0,0,10"/>
-                    <TextBlock x:Name="lblMenuItem" Text="◆  Inicio" FontSize="14" Foreground="#E8D8FF" Margin="4,0,0,14"/>
-                    <TextBlock Text="◇  Mi cuenta" FontSize="14" Foreground="#6B5A87" Margin="4,0,0,14"/>
-                    <TextBlock Text="◇  Configuración" FontSize="14" Foreground="#6B5A87" Margin="4,0,0,14"/>
+                        <!-- Usuario logueado -->
+                        <Border Grid.Row="1" Background="{StaticResource MentaBrush}" CornerRadius="22"
+                                Padding="14" Margin="0,0,0,24">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Width="46" Height="46" CornerRadius="23" Background="{StaticResource TealBrush}"
+                                        VerticalAlignment="Center">
+                                    <TextBlock x:Name="lblInicial" Text="?" FontSize="19" FontWeight="ExtraBold"
+                                               Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
+                                    <TextBlock x:Name="lblNombre" Text="Usuario" FontSize="15" FontWeight="ExtraBold"
+                                               TextWrapping="Wrap"/>
+                                    <Border HorizontalAlignment="Left" Background="White" CornerRadius="10"
+                                            Padding="9,2" Margin="0,5,0,0">
+                                        <TextBlock x:Name="lblRolBadge" Text="ROL" FontSize="11" FontWeight="ExtraBold"
+                                                   Foreground="{StaticResource TealOscuroBrush}"/>
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
 
-                    <Button Content="⏻  Cerrar sesión" Height="44" Margin="0,30,0,0"
-                            Foreground="White" FontWeight="Bold" FontSize="13" BorderThickness="0"
-                            Cursor="Hand" Click="CerrarSesion_Click">
-                        <Button.Style>
-                            <Style TargetType="Button">
-                                <Setter Property="Background" Value="#FF3B5C"/>
-                                <Setter Property="Template">
-                                    <Setter.Value>
-                                        <ControlTemplate TargetType="Button">
-                                            <Border Background="{TemplateBinding Background}" CornerRadius="10">
-                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                            </Border>
-                                        </ControlTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                                <Style.Triggers>
-                                    <Trigger Property="IsMouseOver" Value="True">
-                                        <Setter Property="Background" Value="#FF5C7A"/>
-                                    </Trigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                </StackPanel>
-            </Border>
+                        <!-- Menú -->
+                        <StackPanel Grid.Row="2">
+                            <TextBlock Text="MENÚ" FontSize="11" FontWeight="ExtraBold"
+                                       Foreground="{StaticResource ApagadoBrush}" Margin="8,0,0,10"/>
+                            <Border Background="{StaticResource TealBrush}" CornerRadius="16" Padding="16,11" Margin="0,0,0,6">
+                                <TextBlock x:Name="lblMenuItem" Text="◆   Inicio" FontSize="14" FontWeight="ExtraBold"
+                                           Foreground="White"/>
+                            </Border>
+                            <Border CornerRadius="16" Padding="16,11" Margin="0,0,0,6">
+                                <TextBlock Text="◇   Mi cuenta" FontSize="14" FontWeight="Bold"
+                                           Foreground="{StaticResource ApagadoBrush}"/>
+                            </Border>
+                            <Border CornerRadius="16" Padding="16,11">
+                                <TextBlock Text="◇   Configuración" FontSize="14" FontWeight="Bold"
+                                           Foreground="{StaticResource ApagadoBrush}"/>
+                            </Border>
+                        </StackPanel>
 
-            <!-- ===== CONTENIDO ===== -->
-            <Grid Grid.Column="1" Margin="0">
-                <!-- Barra superior -->
-                <Border VerticalAlignment="Top" Height="52" MouseLeftButtonDown="Barra_Mover">
-                    <Grid>
-                        <TextBlock x:Name="lblTitulo" Text="Panel" FontSize="20" FontWeight="Bold"
-                                   Foreground="White" VerticalAlignment="Center" Margin="30,0,0,0"/>
-                        <Button Content="✕" Width="42" Height="42" HorizontalAlignment="Right"
-                                Background="Transparent" Foreground="#8891B0" BorderThickness="0"
-                                FontSize="16" Cursor="Hand" Click="Cerrar_Click"/>
+                        <!-- Decoración espacial -->
+                        <Grid Grid.Row="3" Height="150" VerticalAlignment="Center" IsHitTestVisible="False">
+                            <Ellipse Width="76" Height="76" Fill="{StaticResource MoradoBrush}"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            <Ellipse Width="18" Height="12" Fill="White" Opacity="0.25"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center" Margin="-30,-28,0,0"/>
+                            <Ellipse Width="138" Height="32" Stroke="{StaticResource AmarilloBrush}" StrokeThickness="5"
+                                     HorizontalAlignment="Center" VerticalAlignment="Center"
+                                     RenderTransformOrigin="0.5,0.5">
+                                <Ellipse.RenderTransform>
+                                    <RotateTransform Angle="-14"/>
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+                            <TextBlock Text="✦" FontSize="16" Foreground="{StaticResource TealBrush}"
+                                       HorizontalAlignment="Left" VerticalAlignment="Top" Margin="16,4,0,0"/>
+                            <TextBlock Text="★" FontSize="14" Foreground="{StaticResource AmarilloBrush}"
+                                       HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,16,20,0"/>
+                            <TextBlock Text="✦" FontSize="12" Foreground="{StaticResource CoralBrush}"
+                                       HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,30,10"/>
+                            <Ellipse Width="7" Height="7" Fill="{StaticResource TealBrush}"
+                                     HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="38,0,0,22"/>
+                        </Grid>
+
+                        <Button Grid.Row="4" Content="⏻   Cerrar sesión" Height="46" FontSize="14" Margin="0"
+                                Style="{StaticResource BtnAccion}"
+                                Background="{StaticResource CoralSuaveBrush}" Foreground="{StaticResource CoralBrush}"
+                                BorderBrush="{StaticResource CoralBrush}" Click="CerrarSesion_Click"/>
                     </Grid>
                 </Border>
 
-                <!-- Tarjetas de resumen -->
-                <StackPanel Margin="30,70,30,0" VerticalAlignment="Top">
-                    <TextBlock x:Name="lblBienvenida" Text="Bienvenido" FontSize="15" Foreground="#8891B0" Margin="0,0,0,16"/>
+                <!-- ===================== CONTENIDO ===================== -->
+                <Grid Grid.Column="1" Margin="30,20,24,20">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
 
-                    <StackPanel x:Name="panelStats" Orientation="Horizontal" Margin="0,0,0,24"/>
+                    <!-- Barra superior (arrastrar la ventana / cerrar) -->
+                    <Border Grid.Row="0" Background="Transparent" MouseLeftButtonDown="Barra_Mover" Margin="0,0,0,16">
+                        <Grid>
+                            <StackPanel VerticalAlignment="Center" Margin="0,0,56,0">
+                                <TextBlock x:Name="lblTitulo" Text="Panel" FontSize="24" FontWeight="ExtraBold"/>
+                                <TextBlock x:Name="lblBienvenida" Text="Bienvenido" FontSize="14"
+                                           Foreground="{StaticResource ApagadoBrush}" Margin="0,2,0,0"/>
+                            </StackPanel>
+                            <Button Content="✕" Style="{StaticResource BtnCerrar}" HorizontalAlignment="Right"
+                                    VerticalAlignment="Top" Click="Cerrar_Click" ToolTip="Cerrar"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Tarjetas de resumen -->
+                    <StackPanel x:Name="panelStats" Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,16"/>
 
                     <!-- ===== VISTA GENÉRICA (DOCENTE / ESTUDIANTE / otros roles) ===== -->
-                    <ScrollViewer x:Name="panelGenerico" MaxHeight="600" VerticalScrollBarVisibility="Auto">
-                    <StackPanel>
-                    <!-- Dos columnas: lista principal a la izquierda, temas (DOCENTE) a la derecha -->
-                    <Grid>
+                    <Grid x:Name="panelGenerico" Grid.Row="2">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
 
                         <!-- Columna izquierda: lista de datos traídos de la API -->
-                        <StackPanel Grid.Column="0">
-                            <TextBlock x:Name="lblSeccion" Text="Datos" FontSize="16" FontWeight="Bold"
-                                       Foreground="White" Margin="0,0,0,12"/>
-                            <Border Background="#111633" CornerRadius="14" Padding="6" Height="360">
-                                <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                    <ItemsControl x:Name="listaDatos"/>
+                        <ContentControl Grid.Column="0" Style="{StaticResource Tarjeta}" Padding="20,18" Margin="0,0,0,14">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <TextBlock x:Name="lblSeccion" Text="Datos" Style="{StaticResource TituloTarjeta}"
+                                           Margin="0,0,0,14"/>
+                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl x:Name="listaDatos" Margin="0,0,6,0"/>
                                 </ScrollViewer>
-                            </Border>
-                            <TextBlock x:Name="lblEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,10,0,0"/>
-                        </StackPanel>
+                                <Border Grid.Row="2" Style="{StaticResource CajaEstado}">
+                                    <TextBlock x:Name="lblEstado" Style="{StaticResource TextoEstado}"/>
+                                </Border>
+                            </Grid>
+                        </ContentControl>
 
                         <!-- Columna derecha: pestañas Temas / Preguntas / Actividades (solo DOCENTE) -->
                         <TabControl x:Name="tabsDocente" Grid.Column="1" Visibility="Collapsed"
-                                Width="470" Margin="20,0,0,0" VerticalAlignment="Top" Height="580"
-                                Style="{StaticResource TabsOscuro}"
-                                ItemContainerStyle="{StaticResource TabItemOscuro}">
+                                    Width="480" Margin="20,0,0,0"
+                                    Style="{StaticResource Tabs}" ItemContainerStyle="{StaticResource Tab}">
+
+                            <!-- ===== Temas ===== -->
                             <TabItem Header="Temas">
-                            <Border Background="#111633" CornerRadius="14" Padding="12">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <StackPanel>
-                                <TextBlock x:Name="lblTemasTitulo" Text="Temas" FontSize="15" FontWeight="Bold"
-                                           Foreground="White" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                                <ContentControl Style="{StaticResource Tarjeta}" Padding="4" Margin="0,0,0,14">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <StackPanel Margin="16,14,14,16">
+                                            <TextBlock x:Name="lblTemasTitulo" Text="Temas" Style="{StaticResource TituloTarjeta}"
+                                                       Margin="0,0,0,14"/>
 
-                                <TextBlock Text="CREAR TEMA" FontSize="11" FontWeight="Bold"
-                                           Foreground="#00FF87" Margin="0,0,0,8"/>
-                                <Border Background="#0E1330" CornerRadius="10"
-                                        BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
-                                    <TextBox x:Name="txtNuevoTema" Height="40"
-                                             VerticalContentAlignment="Center"
-                                             Background="Transparent" BorderThickness="0"
-                                             Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                </Border>
-                                <Button x:Name="btnCrearTema" Content="＋  Crear tema"
-                                        Height="40" Margin="0,10,0,0"
-                                        Foreground="#0A0E27" FontWeight="Bold" FontSize="13"
-                                        Cursor="Hand" Click="CrearTema_Click">
-                                    <Button.Style>
-                                        <Style TargetType="Button">
-                                            <Setter Property="Background" Value="#00FF87"/>
-                                            <Setter Property="Template">
-                                                <Setter.Value>
-                                                    <ControlTemplate TargetType="Button">
-                                                        <Border Background="{TemplateBinding Background}" CornerRadius="10">
-                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                                        </Border>
-                                                    </ControlTemplate>
-                                                </Setter.Value>
-                                            </Setter>
-                                            <Style.Triggers>
-                                                <Trigger Property="IsMouseOver" Value="True">
-                                                    <Setter Property="Background" Value="#4DFFB0"/>
-                                                </Trigger>
-                                                <Trigger Property="IsEnabled" Value="False">
-                                                    <Setter Property="Background" Value="#2A3358"/>
-                                                </Trigger>
-                                            </Style.Triggers>
-                                        </Style>
-                                    </Button.Style>
-                                </Button>
+                                            <TextBlock Text="Nuevo tema" Style="{StaticResource Etiqueta}"/>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox x:Name="txtNuevoTema" Tag="Nombre del tema"/>
+                                                <Button x:Name="btnCrearTema" Grid.Column="1" Content="＋  Crear tema"
+                                                        Margin="10,0,0,0" Style="{StaticResource BtnPrimario}"
+                                                        Click="CrearTema_Click"/>
+                                            </Grid>
 
-                                <TextBlock Text="TEMAS DE LA MATERIA (elige uno)" FontSize="11" FontWeight="Bold"
-                                           Foreground="#6B5A87" Margin="0,18,0,8"/>
-                                <Border Background="#0E1330" CornerRadius="12" Padding="6">
-                                    <ItemsControl x:Name="listaTemas"/>
-                                </Border>
-                                <TextBlock x:Name="lblTemasEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
+                                            <TextBlock Text="Temas de la materia (elige uno)" Style="{StaticResource Etiqueta}"
+                                                       Margin="2,20,0,8"/>
+                                            <ItemsControl x:Name="listaTemas"/>
+                                            <Border Style="{StaticResource CajaEstado}">
+                                                <TextBlock x:Name="lblTemasEstado" Style="{StaticResource TextoEstado}"/>
+                                            </Border>
 
-                                <!-- Subtemas del tema (aparece al elegir un tema) -->
-                                <StackPanel x:Name="panelSubtemas" Visibility="Collapsed">
-                                    <Border Height="1" Background="#22284A" Margin="0,18,0,16"/>
-                                    <TextBlock x:Name="lblTemaDetalleTitulo" Text="Tema" FontSize="14"
-                                               FontWeight="Bold" Foreground="White" TextWrapping="Wrap" Margin="0,0,0,14"/>
-                                    <TextBlock Text="SUBTEMAS" FontSize="12" FontWeight="Bold"
-                                               Foreground="#00FF87" Margin="0,0,0,8"/>
-                                    <Grid Margin="0,0,0,8">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <Border Grid.Column="0" Background="#0E1330" CornerRadius="10"
-                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
-                                            <TextBox x:Name="txtNuevoSubtema" Height="38" VerticalContentAlignment="Center"
-                                                     Background="Transparent" BorderThickness="0"
-                                                     Foreground="White" CaretBrush="#00FF87" FontSize="13"/>
-                                        </Border>
-                                        <Button x:Name="btnCrearSubtema" Grid.Column="1" Content="＋" MinWidth="46"
-                                                Height="38" Margin="8,0,0,0"
-                                                Style="{StaticResource BtnVerde}" Click="CrearSubtema_Click"/>
-                                    </Grid>
-                                    <Border Background="#0E1330" CornerRadius="12" Padding="6">
-                                        <ItemsControl x:Name="listaSubtemas"/>
-                                    </Border>
-                                    <TextBlock x:Name="lblSubtemasEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
-                                </StackPanel>
-                            </StackPanel>
-                            </ScrollViewer>
-                            </Border>
+                                            <!-- Subtemas del tema (aparece al elegir un tema) -->
+                                            <StackPanel x:Name="panelSubtemas" Visibility="Collapsed">
+                                                <Border Height="1.5" Background="{StaticResource BordeBrush}" Margin="0,20,0,18"/>
+                                                <TextBlock x:Name="lblTemaDetalleTitulo" Text="Tema"
+                                                           Style="{StaticResource TituloTarjeta}" FontSize="16" Margin="0,0,0,12"/>
+                                                <TextBlock Text="Subtemas" Style="{StaticResource Etiqueta}"/>
+                                                <Grid Margin="0,0,0,10">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBox x:Name="txtNuevoSubtema" Tag="Nombre del subtema"/>
+                                                    <Button x:Name="btnCrearSubtema" Grid.Column="1" Content="＋" MinWidth="50"
+                                                            Padding="0" Margin="10,0,0,0" ToolTip="Crear subtema"
+                                                            Style="{StaticResource BtnPrimario}" Click="CrearSubtema_Click"/>
+                                                </Grid>
+                                                <ItemsControl x:Name="listaSubtemas"/>
+                                                <Border Style="{StaticResource CajaEstado}">
+                                                    <TextBlock x:Name="lblSubtemasEstado" Style="{StaticResource TextoEstado}"/>
+                                                </Border>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </ContentControl>
                             </TabItem>
 
+                            <!-- ===== Preguntas ===== -->
                             <TabItem Header="Preguntas">
-                            <Border Background="#111633" CornerRadius="14" Padding="12">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <StackPanel>
-                                <TextBlock Text="Elegí un tema en la pestaña «Temas» para crear y ver preguntas."
-                                           FontSize="11" Foreground="#6B5A87" Margin="0,0,0,10" TextWrapping="Wrap"/>
-                                <StackPanel x:Name="panelPregunta" Visibility="Collapsed">
-                                    <TextBlock x:Name="lblPreguntaTitulo" Text="Crear pregunta" FontSize="13"
-                                               FontWeight="Bold" Foreground="#00FF87" TextWrapping="Wrap" Margin="0,0,0,12"/>
+                                <ContentControl Style="{StaticResource Tarjeta}" Padding="4" Margin="0,0,0,14">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <StackPanel Margin="16,14,14,16">
+                                            <TextBlock Text="Elige un tema en la pestaña «Temas» para crear y ver preguntas."
+                                                       Style="{StaticResource AyudaTexto}" Margin="0,0,0,12"/>
+                                            <StackPanel x:Name="panelPregunta" Visibility="Collapsed">
+                                                <TextBlock x:Name="lblPreguntaTitulo" Text="Crear pregunta"
+                                                           Style="{StaticResource TituloTarjeta}" FontSize="16" Margin="0,0,0,14"/>
 
-                                    <TextBlock Text="Enunciado" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                    <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                            BorderThickness="1" Padding="10,6" Margin="0,0,0,10">
-                                        <TextBox x:Name="txtEnunciado" MinHeight="56" AcceptsReturn="True"
-                                                 TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                                                 Background="Transparent" BorderThickness="0"
-                                                 Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                    </Border>
+                                                <TextBlock Text="Enunciado" Style="{StaticResource Etiqueta}"/>
+                                                <TextBox x:Name="txtEnunciado" Style="{StaticResource CampoMultilinea}"
+                                                         Tag="Escribe la pregunta" Margin="0,0,0,12"/>
 
-                                    <TextBlock Text="Explicación (opcional)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                    <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                            BorderThickness="1" Padding="10,6" Margin="0,0,0,12">
-                                        <TextBox x:Name="txtExplicacion" MinHeight="40" AcceptsReturn="True"
-                                                 TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                                                 Background="Transparent" BorderThickness="0"
-                                                 Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                    </Border>
+                                                <TextBlock Text="Explicación (opcional)" Style="{StaticResource Etiqueta}"/>
+                                                <TextBox x:Name="txtExplicacion" Style="{StaticResource CampoMultilinea}"
+                                                         MinHeight="56" Margin="0,0,0,14"/>
 
-                                    <TextBlock Text="Opciones (marca la correcta)" FontSize="11" FontWeight="Bold"
-                                               Foreground="#6B5A87" Margin="0,0,0,8"/>
+                                                <TextBlock Text="Opciones (marca la correcta)" Style="{StaticResource Etiqueta}"
+                                                           Margin="2,0,0,8"/>
+                                                <Grid Margin="0,0,0,8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <RadioButton x:Name="rbOp1" GroupName="OpcionCorrecta" IsChecked="True"
+                                                                 VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                                    <TextBox x:Name="txtOp1" Grid.Column="1" MinHeight="42" Tag="Opción 1"/>
+                                                </Grid>
+                                                <Grid Margin="0,0,0,8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <RadioButton x:Name="rbOp2" GroupName="OpcionCorrecta"
+                                                                 VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                                    <TextBox x:Name="txtOp2" Grid.Column="1" MinHeight="42" Tag="Opción 2"/>
+                                                </Grid>
+                                                <Grid Margin="0,0,0,8">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <RadioButton x:Name="rbOp3" GroupName="OpcionCorrecta"
+                                                                 VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                                    <TextBox x:Name="txtOp3" Grid.Column="1" MinHeight="42" Tag="Opción 3"/>
+                                                </Grid>
+                                                <Grid Margin="0,0,0,16">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <RadioButton x:Name="rbOp4" GroupName="OpcionCorrecta"
+                                                                 VerticalAlignment="Center" Margin="0,0,10,0"/>
+                                                    <TextBox x:Name="txtOp4" Grid.Column="1" MinHeight="42" Tag="Opción 4"/>
+                                                </Grid>
 
-                                    <Grid Margin="0,0,0,8">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <RadioButton x:Name="rbOp1" Grid.Column="0" GroupName="OpcionCorrecta"
-                                                     IsChecked="True" VerticalAlignment="Center" Margin="0,0,8,0"
-                                                     Foreground="White"/>
-                                        <Border Grid.Column="1" Background="#0E1330" CornerRadius="10"
-                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
-                                            <TextBox x:Name="txtOp1" Height="38" VerticalContentAlignment="Center"
-                                                     Background="Transparent" BorderThickness="0"
-                                                     Foreground="White" CaretBrush="#00FF87" FontSize="13"/>
-                                        </Border>
-                                    </Grid>
-                                    <Grid Margin="0,0,0,8">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <RadioButton x:Name="rbOp2" Grid.Column="0" GroupName="OpcionCorrecta"
-                                                     VerticalAlignment="Center" Margin="0,0,8,0" Foreground="White"/>
-                                        <Border Grid.Column="1" Background="#0E1330" CornerRadius="10"
-                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
-                                            <TextBox x:Name="txtOp2" Height="38" VerticalContentAlignment="Center"
-                                                     Background="Transparent" BorderThickness="0"
-                                                     Foreground="White" CaretBrush="#00FF87" FontSize="13"/>
-                                        </Border>
-                                    </Grid>
-                                    <Grid Margin="0,0,0,8">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <RadioButton x:Name="rbOp3" Grid.Column="0" GroupName="OpcionCorrecta"
-                                                     VerticalAlignment="Center" Margin="0,0,8,0" Foreground="White"/>
-                                        <Border Grid.Column="1" Background="#0E1330" CornerRadius="10"
-                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
-                                            <TextBox x:Name="txtOp3" Height="38" VerticalContentAlignment="Center"
-                                                     Background="Transparent" BorderThickness="0"
-                                                     Foreground="White" CaretBrush="#00FF87" FontSize="13"/>
-                                        </Border>
-                                    </Grid>
-                                    <Grid Margin="0,0,0,14">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="Auto"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <RadioButton x:Name="rbOp4" Grid.Column="0" GroupName="OpcionCorrecta"
-                                                     VerticalAlignment="Center" Margin="0,0,8,0" Foreground="White"/>
-                                        <Border Grid.Column="1" Background="#0E1330" CornerRadius="10"
-                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
-                                            <TextBox x:Name="txtOp4" Height="38" VerticalContentAlignment="Center"
-                                                     Background="Transparent" BorderThickness="0"
-                                                     Foreground="White" CaretBrush="#00FF87" FontSize="13"/>
-                                        </Border>
-                                    </Grid>
+                                                <Button x:Name="btnCrearPregunta" Content="＋  Crear pregunta"
+                                                        Style="{StaticResource BtnPrimario}" Click="CrearPregunta_Click"/>
+                                                <Border Style="{StaticResource CajaEstado}">
+                                                    <TextBlock x:Name="lblPreguntaEstado" Style="{StaticResource TextoEstado}"/>
+                                                </Border>
 
-                                    <Button x:Name="btnCrearPregunta" Content="＋  Crear pregunta"
-                                            Style="{StaticResource BtnVerde}" Click="CrearPregunta_Click"/>
-                                    <TextBlock x:Name="lblPreguntaEstado" Text="" FontSize="12"
-                                               Foreground="#4A5578" TextWrapping="Wrap" Margin="0,8,0,0"/>
-
-                                    <Border Height="1" Background="#22284A" Margin="0,16,0,16"/>
-                                    <TextBlock Text="PREGUNTAS DEL TEMA" FontSize="12" FontWeight="Bold"
-                                               Foreground="#00FF87" Margin="0,0,0,8"/>
-                                    <Border Background="#0E1330" CornerRadius="12" Padding="6">
-                                        <ItemsControl x:Name="listaPreguntas"/>
-                                    </Border>
-                                    <TextBlock x:Name="lblPreguntasEstado" Text="" FontSize="12"
-                                               Foreground="#4A5578" TextWrapping="Wrap" Margin="0,8,0,0"/>
-                                </StackPanel>
-                            </StackPanel>
-                            </ScrollViewer>
-                            </Border>
+                                                <Border Height="1.5" Background="{StaticResource BordeBrush}" Margin="0,20,0,18"/>
+                                                <TextBlock Text="Preguntas del tema" Style="{StaticResource Etiqueta}" Margin="2,0,0,8"/>
+                                                <ItemsControl x:Name="listaPreguntas"/>
+                                                <Border Style="{StaticResource CajaEstado}">
+                                                    <TextBlock x:Name="lblPreguntasEstado" Style="{StaticResource TextoEstado}"/>
+                                                </Border>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </ContentControl>
                             </TabItem>
 
+                            <!-- ===== Actividades ===== -->
                             <TabItem Header="Actividades">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel x:Name="panelActividades" Visibility="Collapsed" Margin="0,4,0,0">
-                        <TextBlock Text="Crear, publicar y gestionar actividades." FontSize="11"
-                                   Foreground="#6B5A87" Margin="0,0,0,12"/>
+                                <ContentControl Style="{StaticResource Tarjeta}" Padding="4" Margin="0,0,0,14">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <StackPanel x:Name="panelActividades" Visibility="Collapsed" Margin="16,14,14,16">
+                                            <TextBlock Text="Crear, publicar y gestionar actividades."
+                                                       Style="{StaticResource AyudaTexto}" Margin="0,0,0,12"/>
 
-                        <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
-                            <StackPanel>
-                                <TextBlock Text="CREAR ACTIVIDAD (nace en borrador)" FontSize="11" FontWeight="Bold"
-                                           Foreground="#6B5A87" Margin="0,0,0,12"/>
+                                            <Border Background="{StaticResource FondoBrush}" BorderBrush="{StaticResource BordeBrush}"
+                                                    BorderThickness="1.5" CornerRadius="20" Padding="16" Margin="0,0,0,16">
+                                                <StackPanel>
+                                                    <TextBlock Text="Nueva actividad" Style="{StaticResource TituloTarjeta}" FontSize="16"/>
+                                                    <TextBlock Text="Nace en borrador." Style="{StaticResource SubtituloTarjeta}"
+                                                               Margin="0,2,0,14"/>
 
-                                <TextBlock Text="Título" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                        BorderThickness="1" Padding="12,0" Margin="0,0,0,10">
-                                    <TextBox x:Name="txtActTitulo" Height="40" VerticalContentAlignment="Center"
-                                             Background="Transparent" BorderThickness="0"
-                                             Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                </Border>
+                                                    <TextBlock Text="Título" Style="{StaticResource Etiqueta}"/>
+                                                    <TextBox x:Name="txtActTitulo" Tag="Título de la actividad" Margin="0,0,0,12"/>
 
-                                <TextBlock Text="Descripción (opcional)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                        BorderThickness="1" Padding="10,6" Margin="0,0,0,10">
-                                    <TextBox x:Name="txtActDescripcion" MinHeight="44" AcceptsReturn="True"
-                                             TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                                             Background="Transparent" BorderThickness="0"
-                                             Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                </Border>
+                                                    <TextBlock Text="Descripción (opcional)" Style="{StaticResource Etiqueta}"/>
+                                                    <TextBox x:Name="txtActDescripcion" Style="{StaticResource CampoMultilinea}"
+                                                             MinHeight="56" Margin="0,0,0,12"/>
 
-                                <Grid Margin="0,0,0,10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                                        <TextBlock Text="Materia" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                        <ComboBox x:Name="cmbActMateria" Style="{StaticResource ComboOscuro}"
-                                                  ItemContainerStyle="{StaticResource ComboItemOscuro}"
-                                                  SelectionChanged="ActMateria_Changed"/>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                                        <TextBlock Text="Tema" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                        <ComboBox x:Name="cmbActTema" Style="{StaticResource ComboOscuro}"
-                                                  ItemContainerStyle="{StaticResource ComboItemOscuro}"/>
-                                    </StackPanel>
-                                </Grid>
+                                                    <Grid Margin="0,0,0,12">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                                            <TextBlock Text="Materia" Style="{StaticResource Etiqueta}"/>
+                                                            <ComboBox x:Name="cmbActMateria" SelectionChanged="ActMateria_Changed"/>
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                                            <TextBlock Text="Tema" Style="{StaticResource Etiqueta}"/>
+                                                            <ComboBox x:Name="cmbActTema"/>
+                                                        </StackPanel>
+                                                    </Grid>
 
-                                <Grid Margin="0,0,0,10">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                                        <TextBlock Text="Modo de dificultad" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                        <ComboBox x:Name="cmbActModo" SelectedIndex="0"
-                                                  Style="{StaticResource ComboOscuro}"
-                                                  ItemContainerStyle="{StaticResource ComboItemOscuro}">
-                                            <ComboBoxItem>MANUAL</ComboBoxItem>
-                                            <ComboBoxItem>ADAPTATIVA</ComboBoxItem>
-                                        </ComboBox>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                                        <TextBlock Text="Tipo actividad (id)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                        <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                                BorderThickness="1" Padding="12,0">
-                                            <TextBox x:Name="txtActTipoId" Text="1" Height="42" VerticalContentAlignment="Center"
-                                                     Background="Transparent" BorderThickness="0"
-                                                     Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                        </Border>
-                                    </StackPanel>
-                                </Grid>
+                                                    <Grid Margin="0,0,0,12">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                                            <TextBlock Text="Modo de dificultad" Style="{StaticResource Etiqueta}"/>
+                                                            <ComboBox x:Name="cmbActModo" SelectedIndex="0">
+                                                                <ComboBoxItem>MANUAL</ComboBoxItem>
+                                                                <ComboBoxItem>ADAPTATIVA</ComboBoxItem>
+                                                            </ComboBox>
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                                            <TextBlock Text="Tipo actividad (id)" Style="{StaticResource Etiqueta}"/>
+                                                            <TextBox x:Name="txtActTipoId" Text="1"/>
+                                                        </StackPanel>
+                                                    </Grid>
 
-                                <Grid Margin="0,0,0,12">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
-                                    <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                                        <TextBlock Text="Nivel inicial (id)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                        <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                                BorderThickness="1" Padding="12,0">
-                                            <TextBox x:Name="txtActNivelId" Text="1" Height="42" VerticalContentAlignment="Center"
-                                                     Background="Transparent" BorderThickness="0"
-                                                     Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                        </Border>
-                                    </StackPanel>
-                                    <StackPanel Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Bottom">
-                                        <CheckBox x:Name="chkRecuperacion" Content="Recuperación activa"
-                                                  Foreground="White" FontSize="13" Margin="2,0,0,6"/>
-                                        <CheckBox x:Name="chkRecompensas" Content="Recompensas activas" IsChecked="True"
-                                                  Foreground="White" FontSize="13" Margin="2,0,0,0"/>
-                                    </StackPanel>
-                                </Grid>
+                                                    <Grid Margin="0,0,0,16">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                                            <TextBlock Text="Nivel inicial (id)" Style="{StaticResource Etiqueta}"/>
+                                                            <TextBox x:Name="txtActNivelId" Text="1"/>
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Bottom">
+                                                            <CheckBox x:Name="chkRecuperacion" Content="Recuperación activa"
+                                                                      FontSize="13" Margin="0,0,0,8"/>
+                                                            <CheckBox x:Name="chkRecompensas" Content="Recompensas activas"
+                                                                      FontSize="13" IsChecked="True" Margin="0,0,0,4"/>
+                                                        </StackPanel>
+                                                    </Grid>
 
-                                <Button x:Name="btnCrearActividad" Content="＋  Crear actividad"
-                                        Style="{StaticResource BtnVerde}" Click="CrearActividad_Click"/>
-                            </StackPanel>
-                        </Border>
-
-                        <Border Background="#111633" CornerRadius="14" Padding="6">
-                            <ItemsControl x:Name="listaActividades"/>
-                        </Border>
-                        <TextBlock x:Name="lblActividadesEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
-
-                        <!-- Asignar preguntas del banco a la actividad elegida -->
-                        <StackPanel x:Name="panelAsignarPreguntas" Visibility="Collapsed" Margin="0,14,0,0">
-                            <Border Height="1" Background="#22284A" Margin="0,0,0,14"/>
-                            <TextBlock x:Name="lblAsignarTitulo" Text="Asignar preguntas" FontSize="13"
-                                       FontWeight="Bold" Foreground="#00FF87" TextWrapping="Wrap" Margin="0,0,0,4"/>
-                            <TextBlock Text="Preguntas del tema de la actividad. Pulsá «Agregar» para añadirlas."
-                                       FontSize="11" Foreground="#6B5A87" Margin="0,0,0,10" TextWrapping="Wrap"/>
-                            <Border Background="#0E1330" CornerRadius="12" Padding="6">
-                                <ItemsControl x:Name="listaBancoPreguntas"/>
-                            </Border>
-                            <TextBlock x:Name="lblAsignarEstado" Text="" FontSize="12"
-                                       Foreground="#4A5578" TextWrapping="Wrap" Margin="0,8,0,0"/>
-
-                            <!-- Estado y publicación de la actividad -->
-                            <Border Height="1" Background="#22284A" Margin="0,16,0,14"/>
-                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-                                <TextBlock Text="Estado:" FontSize="12" Foreground="#8891B0"
-                                           VerticalAlignment="Center" Margin="0,0,8,0"/>
-                                <Border x:Name="brdEstadoActual" CornerRadius="6" Background="#2A3358"
-                                        Padding="10,3" VerticalAlignment="Center" Margin="0,0,12,0">
-                                    <TextBlock x:Name="lblEstadoActual" Text="—" FontSize="11" FontWeight="Bold"
-                                               Foreground="#8891B0"/>
-                                </Border>
-                                <Button x:Name="btnEstadoPublicar" Content="Publicar actividad"
-                                        Style="{StaticResource BtnAccion}" Background="#1E7A4D"
-                                        Click="EstadoPublicar_Click"/>
-                                <Button x:Name="btnEstadoCerrar" Content="Cerrar actividad"
-                                        Style="{StaticResource BtnAccion}" Background="#7A3B1E"
-                                        Click="EstadoCerrar_Click"/>
-                            </StackPanel>
-
-                            <TextBlock Text="PUBLICAR A UNA SECCIÓN" FontSize="12" FontWeight="Bold"
-                                       Foreground="#00FF87" Margin="0,0,0,8"/>
-                            <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
-                                <StackPanel>
-                                    <Grid Margin="0,0,0,10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                                            <TextBlock Text="Sección" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                            <ComboBox x:Name="cmbPubSeccion" Style="{StaticResource ComboOscuro}"
-                                                      ItemContainerStyle="{StaticResource ComboItemOscuro}"/>
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                                            <TextBlock Text="Período académico" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                            <ComboBox x:Name="cmbPubPeriodo" Style="{StaticResource ComboOscuro}"
-                                                      ItemContainerStyle="{StaticResource ComboItemOscuro}"/>
-                                        </StackPanel>
-                                    </Grid>
-
-                                    <Grid Margin="0,0,0,10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                                            <TextBlock Text="Apertura (yyyy-MM-dd HH:mm)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                                    BorderThickness="1" Padding="12,0">
-                                                <TextBox x:Name="txtPubApertura" Height="40" VerticalContentAlignment="Center"
-                                                         Background="Transparent" BorderThickness="0"
-                                                         Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                                    <Button x:Name="btnCrearActividad" Content="＋  Crear actividad"
+                                                            Style="{StaticResource BtnPrimario}" Click="CrearActividad_Click"/>
+                                                </StackPanel>
                                             </Border>
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                                            <TextBlock Text="Cierre (yyyy-MM-dd HH:mm)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                                    BorderThickness="1" Padding="12,0">
-                                                <TextBox x:Name="txtPubCierre" Height="40" VerticalContentAlignment="Center"
-                                                         Background="Transparent" BorderThickness="0"
-                                                         Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                            </Border>
-                                        </StackPanel>
-                                    </Grid>
 
-                                    <Grid Margin="0,0,0,12">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                                            <TextBlock Text="Máx. intentos" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                                    BorderThickness="1" Padding="12,0">
-                                                <TextBox x:Name="txtPubIntentos" Text="1" Height="40" VerticalContentAlignment="Center"
-                                                         Background="Transparent" BorderThickness="0"
-                                                         Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                            <TextBlock Text="Tus actividades" Style="{StaticResource Etiqueta}" Margin="2,0,0,8"/>
+                                            <ItemsControl x:Name="listaActividades"/>
+                                            <Border Style="{StaticResource CajaEstado}">
+                                                <TextBlock x:Name="lblActividadesEstado" Style="{StaticResource TextoEstado}"/>
                                             </Border>
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                                            <TextBlock Text="Duración (min, opcional)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                                    BorderThickness="1" Padding="12,0">
-                                                <TextBox x:Name="txtPubDuracion" Height="40" VerticalContentAlignment="Center"
-                                                         Background="Transparent" BorderThickness="0"
-                                                         Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                            </Border>
-                                        </StackPanel>
-                                    </Grid>
 
-                                    <Button x:Name="btnPublicarSeccion" Content="＋  Publicar a la sección"
-                                            Style="{StaticResource BtnVerde}" Click="PublicarSeccion_Click"/>
-                                </StackPanel>
-                            </Border>
+                                            <!-- Asignar preguntas del banco a la actividad elegida -->
+                                            <StackPanel x:Name="panelAsignarPreguntas" Visibility="Collapsed">
+                                                <Border Height="1.5" Background="{StaticResource BordeBrush}" Margin="0,20,0,18"/>
+                                                <TextBlock x:Name="lblAsignarTitulo" Text="Asignar preguntas"
+                                                           Style="{StaticResource TituloTarjeta}" FontSize="16"/>
+                                                <TextBlock Text="Preguntas del tema de la actividad. Pulsa «Agregar» para añadirlas."
+                                                           Style="{StaticResource SubtituloTarjeta}" Margin="0,3,0,12"/>
+                                                <ItemsControl x:Name="listaBancoPreguntas"/>
+                                                <Border Style="{StaticResource CajaEstado}">
+                                                    <TextBlock x:Name="lblAsignarEstado" Style="{StaticResource TextoEstado}"/>
+                                                </Border>
 
-                            <TextBlock Text="PUBLICADA EN" FontSize="11" FontWeight="Bold"
-                                       Foreground="#6B5A87" Margin="0,4,0,8"/>
-                            <Border Background="#0E1330" CornerRadius="12" Padding="6">
-                                <ItemsControl x:Name="listaPubSecciones"/>
-                            </Border>
-                            <TextBlock x:Name="lblPublicarEstado" Text="" FontSize="12"
-                                       Foreground="#4A5578" TextWrapping="Wrap" Margin="0,8,0,0"/>
-                        </StackPanel>
-                    </StackPanel>
-                            </ScrollViewer>
+                                                <!-- Estado y publicación de la actividad -->
+                                                <Border Height="1.5" Background="{StaticResource BordeBrush}" Margin="0,20,0,16"/>
+                                                <WrapPanel Margin="0,0,0,16">
+                                                    <TextBlock Text="Estado:" FontSize="13" FontWeight="Bold"
+                                                               VerticalAlignment="Center" Margin="0,0,8,6"/>
+                                                    <Border x:Name="brdEstadoActual" CornerRadius="11"
+                                                            Background="{StaticResource NeutroSuaveBrush}"
+                                                            Padding="10,3" VerticalAlignment="Center" Margin="0,0,6,6">
+                                                        <TextBlock x:Name="lblEstadoActual" Text="—" FontSize="11" FontWeight="ExtraBold"
+                                                                   Foreground="{StaticResource ApagadoBrush}"/>
+                                                    </Border>
+                                                    <Button x:Name="btnEstadoPublicar" Content="Publicar actividad"
+                                                            Style="{StaticResource BtnAccion}" Margin="0,0,6,6"
+                                                            Background="{StaticResource VerdeSuaveBrush}"
+                                                            Foreground="{StaticResource VerdeBrush}"
+                                                            BorderBrush="{StaticResource VerdeBrush}"
+                                                            Click="EstadoPublicar_Click"/>
+                                                    <Button x:Name="btnEstadoCerrar" Content="Cerrar actividad"
+                                                            Style="{StaticResource BtnAccion}" Margin="0,0,0,6"
+                                                            Background="{StaticResource CoralSuaveBrush}"
+                                                            Foreground="{StaticResource CoralBrush}"
+                                                            BorderBrush="{StaticResource CoralBrush}"
+                                                            Click="EstadoCerrar_Click"/>
+                                                </WrapPanel>
+
+                                                <Border Background="{StaticResource FondoBrush}" BorderBrush="{StaticResource BordeBrush}"
+                                                        BorderThickness="1.5" CornerRadius="20" Padding="16" Margin="0,0,0,16">
+                                                    <StackPanel>
+                                                        <TextBlock Text="Publicar a una sección" Style="{StaticResource TituloTarjeta}"
+                                                                   FontSize="16" Margin="0,0,0,14"/>
+                                                        <Grid Margin="0,0,0,12">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                                                <TextBlock Text="Sección" Style="{StaticResource Etiqueta}"/>
+                                                                <ComboBox x:Name="cmbPubSeccion"/>
+                                                            </StackPanel>
+                                                            <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                                                <TextBlock Text="Período académico" Style="{StaticResource Etiqueta}"/>
+                                                                <ComboBox x:Name="cmbPubPeriodo"/>
+                                                            </StackPanel>
+                                                        </Grid>
+
+                                                        <Grid Margin="0,0,0,12">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                                                <TextBlock Text="Apertura" Style="{StaticResource Etiqueta}"/>
+                                                                <TextBox x:Name="txtPubApertura" Tag="yyyy-MM-dd HH:mm"/>
+                                                            </StackPanel>
+                                                            <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                                                <TextBlock Text="Cierre" Style="{StaticResource Etiqueta}"/>
+                                                                <TextBox x:Name="txtPubCierre" Tag="yyyy-MM-dd HH:mm"/>
+                                                            </StackPanel>
+                                                        </Grid>
+
+                                                        <Grid Margin="0,0,0,16">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="*"/>
+                                                                <ColumnDefinition Width="*"/>
+                                                            </Grid.ColumnDefinitions>
+                                                            <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                                                <TextBlock Text="Máx. intentos" Style="{StaticResource Etiqueta}"/>
+                                                                <TextBox x:Name="txtPubIntentos" Text="1"/>
+                                                            </StackPanel>
+                                                            <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                                                <TextBlock Text="Duración (min)" Style="{StaticResource Etiqueta}"/>
+                                                                <TextBox x:Name="txtPubDuracion" Tag="Opcional"/>
+                                                            </StackPanel>
+                                                        </Grid>
+
+                                                        <Button x:Name="btnPublicarSeccion" Content="＋  Publicar a la sección"
+                                                                Style="{StaticResource BtnPrimario}" Click="PublicarSeccion_Click"/>
+                                                    </StackPanel>
+                                                </Border>
+
+                                                <TextBlock Text="Publicada en" Style="{StaticResource Etiqueta}" Margin="2,0,0,8"/>
+                                                <ItemsControl x:Name="listaPubSecciones"/>
+                                                <Border Style="{StaticResource CajaEstado}">
+                                                    <TextBlock x:Name="lblPublicarEstado" Style="{StaticResource TextoEstado}"/>
+                                                </Border>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </ContentControl>
                             </TabItem>
                         </TabControl>
                     </Grid>
-                    </StackPanel>
-                    </ScrollViewer>
                     <!-- ===== FIN VISTA GENÉRICA ===== -->
 
                     <!-- ===== VISTA ADMIN: pestañas por área ===== -->
-                    <TabControl x:Name="panelAdmin" Visibility="Collapsed" Height="580"
-                                Style="{StaticResource TabsOscuro}"
-                                ItemContainerStyle="{StaticResource TabItemOscuro}">
-                            <TabItem Header="Materias">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <StackPanel Margin="4,12,10,0">
-                            <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
-                                <StackPanel>
-                                    <TextBlock Text="CREAR MATERIA" FontSize="11" FontWeight="Bold"
-                                               Foreground="#6B5A87" Margin="0,0,0,10"/>
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <Border Grid.Column="0" Background="#0E1330" CornerRadius="10"
-                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
-                                            <TextBox x:Name="txtNuevaMateria" Height="42"
-                                                     VerticalContentAlignment="Center"
-                                                     Background="Transparent" BorderThickness="0"
-                                                     Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                        </Border>
-                                        <Button x:Name="btnCrear" Grid.Column="1" Content="＋  Crear"
-                                                MinWidth="120" Margin="12,0,0,0"
-                                                Style="{StaticResource BtnVerde}" Click="CrearMateria_Click"/>
-                                    </Grid>
-                                </StackPanel>
-                            </Border>
-                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                    BorderThickness="1" Padding="12,0" Margin="0,0,0,8">
-                                <TextBox x:Name="txtBuscarMateria" Height="38" VerticalContentAlignment="Center"
-                                         Background="Transparent" BorderThickness="0"
-                                         Foreground="White" CaretBrush="#00FF87" FontSize="13"
-                                         TextChanged="BuscarMateria_Changed"/>
-                            </Border>
-                            <Border Background="#111633" CornerRadius="14" Padding="6">
-                                <ItemsControl x:Name="listaMaterias"/>
-                            </Border>
-                            <TextBlock x:Name="lblMateriasEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
-                            </StackPanel>
-                            </ScrollViewer>
-                            </TabItem>
+                    <TabControl x:Name="panelAdmin" Grid.Row="2" Visibility="Collapsed"
+                                Style="{StaticResource Tabs}" ItemContainerStyle="{StaticResource Tab}">
 
-                            <TabItem Header="Usuarios">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <StackPanel Margin="4,12,10,0">
-                            <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
-                                <StackPanel>
-                                    <TextBlock Text="CREAR USUARIO" FontSize="11" FontWeight="Bold"
-                                               Foreground="#6B5A87" Margin="0,0,0,12"/>
+                        <!-- ===== Materias ===== -->
+                        <TabItem Header="Materias">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="310"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
 
-                                    <TextBlock Text="Nombre completo" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                    <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                            BorderThickness="1" Padding="12,0" Margin="0,0,0,10">
-                                        <TextBox x:Name="txtNombreCompleto" Height="40" VerticalContentAlignment="Center"
-                                                 Background="Transparent" BorderThickness="0"
-                                                 Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                                    <ContentControl Style="{StaticResource Tarjeta}" Margin="0,0,20,20">
+                                        <StackPanel>
+                                            <TextBlock Text="Nueva materia" Style="{StaticResource TituloTarjeta}"/>
+                                            <TextBlock Text="Se crea activa; puedes desactivarla al editarla."
+                                                       Style="{StaticResource SubtituloTarjeta}"/>
+                                            <TextBlock Text="Nombre" Style="{StaticResource Etiqueta}"/>
+                                            <TextBox x:Name="txtNuevaMateria" Tag="Ej.: Matemáticas"/>
+                                            <Button x:Name="btnCrear" Content="＋  Crear materia" Margin="0,18,0,0"
+                                                    Style="{StaticResource BtnPrimario}" Click="CrearMateria_Click"/>
+                                        </StackPanel>
+                                    </ContentControl>
+                                </ScrollViewer>
+
+                                <Grid Grid.Column="1">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBox x:Name="txtBuscarMateria" Tag="🔍  Buscar materia por nombre…"
+                                             TextChanged="BuscarMateria_Changed" Margin="0,0,0,12"/>
+                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                        <ItemsControl x:Name="listaMaterias" Margin="0,0,6,0"/>
+                                    </ScrollViewer>
+                                    <Border Grid.Row="2" Style="{StaticResource CajaEstado}">
+                                        <TextBlock x:Name="lblMateriasEstado" Style="{StaticResource TextoEstado}"/>
                                     </Border>
+                                </Grid>
+                            </Grid>
+                        </TabItem>
 
-                                    <TextBlock Text="Usuario o correo" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                    <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                            BorderThickness="1" Padding="12,0" Margin="0,0,0,10">
-                                        <TextBox x:Name="txtCorreoUsuario" Height="40" VerticalContentAlignment="Center"
-                                                 Background="Transparent" BorderThickness="0"
-                                                 Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                        <!-- ===== Usuarios ===== -->
+                        <TabItem Header="Usuarios">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="310"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                                    <ContentControl Style="{StaticResource Tarjeta}" Margin="0,0,20,20">
+                                        <StackPanel>
+                                            <TextBlock Text="Nuevo usuario" Style="{StaticResource TituloTarjeta}"
+                                                       Margin="0,0,0,14"/>
+
+                                            <TextBlock Text="Nombre completo" Style="{StaticResource Etiqueta}"/>
+                                            <TextBox x:Name="txtNombreCompleto" Tag="Ej.: Ana Pérez" Margin="0,0,0,10"/>
+
+                                            <TextBlock Text="Usuario o correo" Style="{StaticResource Etiqueta}"/>
+                                            <TextBox x:Name="txtCorreoUsuario" Tag="usuario o correo" Margin="0,0,0,10"/>
+
+                                            <TextBlock Text="Contraseña" Style="{StaticResource Etiqueta}"/>
+                                            <PasswordBox x:Name="pwdClave" Margin="0,0,0,10"/>
+
+                                            <TextBlock Text="Rol" Style="{StaticResource Etiqueta}"/>
+                                            <ComboBox x:Name="cmbRol" SelectedIndex="2" Margin="0,0,0,16">
+                                                <ComboBoxItem>ADMIN</ComboBoxItem>
+                                                <ComboBoxItem>DOCENTE</ComboBoxItem>
+                                                <ComboBoxItem>ESTUDIANTE</ComboBoxItem>
+                                            </ComboBox>
+
+                                            <Button x:Name="btnCrearUsuario" Content="＋  Crear usuario"
+                                                    Style="{StaticResource BtnPrimario}" Click="CrearUsuario_Click"/>
+                                        </StackPanel>
+                                    </ContentControl>
+                                </ScrollViewer>
+
+                                <Grid Grid.Column="1">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBox x:Name="txtBuscarUsuario" Tag="🔍  Buscar usuario por nombre…"
+                                             TextChanged="BuscarUsuario_Changed" Margin="0,0,0,12"/>
+                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                        <ItemsControl x:Name="listaUsuarios" Margin="0,0,6,0"/>
+                                    </ScrollViewer>
+                                    <Border Grid.Row="2" Style="{StaticResource CajaEstado}">
+                                        <TextBlock x:Name="lblUsuariosEstado" Style="{StaticResource TextoEstado}"/>
                                     </Border>
+                                </Grid>
+                            </Grid>
+                        </TabItem>
 
-                                    <TextBlock Text="Contraseña" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                    <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                            BorderThickness="1" Padding="12,0" Margin="0,0,0,10">
-                                        <PasswordBox x:Name="pwdClave" Height="40" VerticalContentAlignment="Center"
-                                                     Background="Transparent" BorderThickness="0"
-                                                     Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                        <!-- ===== Grados y Secciones ===== -->
+                        <TabItem Header="Grados y Secciones">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Grados -->
+                                <Grid Grid.Column="0" Margin="0,0,10,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <ContentControl Style="{StaticResource Tarjeta}" Padding="20" Margin="0,0,0,16">
+                                        <StackPanel>
+                                            <TextBlock Text="Grados" Style="{StaticResource TituloTarjeta}"/>
+                                            <TextBlock Text="Nombre y orden (0-255, opcional). «Secciones» abre las secciones de ese grado."
+                                                       Style="{StaticResource SubtituloTarjeta}" Margin="0,3,0,14"/>
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="82"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <TextBox x:Name="txtNuevoGrado" Tag="Nombre del grado"/>
+                                                <TextBox x:Name="txtOrdenGrado" Grid.Column="1" Text="1" Tag="Orden"
+                                                         Margin="8,0,0,0" ToolTip="Orden (0-255). Déjalo vacío si no aplica."/>
+                                                <Button x:Name="btnCrearGrado" Grid.Column="2" Content="＋ Crear"
+                                                        Padding="18,0" Margin="8,0,0,0"
+                                                        Style="{StaticResource BtnPrimario}" Click="CrearGrado_Click"/>
+                                            </Grid>
+                                        </StackPanel>
+                                    </ContentControl>
+                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                        <ItemsControl x:Name="listaGrados" Margin="0,0,6,0"/>
+                                    </ScrollViewer>
+                                    <Border Grid.Row="2" Style="{StaticResource CajaEstado}">
+                                        <TextBlock x:Name="lblGradosEstado" Style="{StaticResource TextoEstado}"/>
                                     </Border>
+                                </Grid>
 
-                                    <TextBlock Text="Rol" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                    <ComboBox x:Name="cmbRol" SelectedIndex="2" Margin="0,0,0,14"
-                                              Style="{StaticResource ComboOscuro}"
-                                              ItemContainerStyle="{StaticResource ComboItemOscuro}">
-                                        <ComboBoxItem>ADMIN</ComboBoxItem>
-                                        <ComboBoxItem>DOCENTE</ComboBoxItem>
-                                        <ComboBoxItem>ESTUDIANTE</ComboBoxItem>
-                                    </ComboBox>
+                                <!-- Secciones -->
+                                <Grid Grid.Column="1" Margin="10,0,0,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                    </Grid.RowDefinitions>
+                                    <ContentControl Style="{StaticResource Tarjeta}" Padding="20" Margin="0,0,0,16">
+                                        <StackPanel>
+                                            <TextBlock Text="Secciones" Style="{StaticResource TituloTarjeta}"/>
+                                            <TextBlock x:Name="lblSeccionesInfo"
+                                                       Text="Elige un grado (botón «Secciones») para gestionar sus secciones."
+                                                       Style="{StaticResource SubtituloTarjeta}" Margin="0,3,0,0"/>
+                                            <!-- El formulario se muestra junto con panelSecciones (al elegir un grado). -->
+                                            <StackPanel Visibility="{Binding Visibility, ElementName=panelSecciones}"
+                                                        Margin="0,14,0,0">
+                                                <TextBlock x:Name="lblSeccionesTitulo" Text="Nueva sección"
+                                                           Style="{StaticResource Etiqueta}"/>
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBox x:Name="txtNuevaSeccion" Tag="Ej.: A"/>
+                                                    <Button x:Name="btnCrearSeccion" Grid.Column="1" Content="＋ Crear"
+                                                            Padding="18,0" Margin="8,0,0,0"
+                                                            Style="{StaticResource BtnPrimario}" Click="CrearSeccion_Click"/>
+                                                </Grid>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </ContentControl>
 
-                                    <Button x:Name="btnCrearUsuario" Content="＋  Crear usuario"
-                                            Style="{StaticResource BtnVerde}" Click="CrearUsuario_Click"/>
-                                </StackPanel>
-                            </Border>
-                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                    BorderThickness="1" Padding="12,0" Margin="0,0,0,8">
-                                <TextBox x:Name="txtBuscarUsuario" Height="38" VerticalContentAlignment="Center"
-                                         Background="Transparent" BorderThickness="0"
-                                         Foreground="White" CaretBrush="#00FF87" FontSize="13"
-                                         TextChanged="BuscarUsuario_Changed"/>
-                            </Border>
-                            <Border Background="#111633" CornerRadius="14" Padding="6">
-                                <ItemsControl x:Name="listaUsuarios"/>
-                            </Border>
-                            <TextBlock x:Name="lblUsuariosEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
-                            </StackPanel>
-                            </ScrollViewer>
-                            </TabItem>
-
-                            <TabItem Header="Grados y Secciones">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <StackPanel Margin="4,12,10,0">
-                            <TextBlock Text="◆  GRADOS" FontSize="13" FontWeight="Bold"
-                                       Foreground="#00FF87" Margin="0,0,0,12"/>
-                            <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
-                                <StackPanel>
-                                    <TextBlock Text="CREAR GRADO" FontSize="11" FontWeight="Bold"
-                                               Foreground="#6B5A87" Margin="0,0,0,10"/>
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="90"/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <Border Grid.Column="0" Background="#0E1330" CornerRadius="10"
-                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
-                                            <TextBox x:Name="txtNuevoGrado" Height="42" VerticalContentAlignment="Center"
-                                                     Background="Transparent" BorderThickness="0"
-                                                     Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                    <!-- Estado vacío (queda detrás de la lista) -->
+                                    <StackPanel Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
+                                                IsHitTestVisible="False">
+                                        <Border Width="72" Height="72" CornerRadius="36" Background="{StaticResource MentaBrush}">
+                                            <TextBlock Text="★" FontSize="30" Foreground="{StaticResource TealBrush}"
+                                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                         </Border>
-                                        <Border Grid.Column="1" Background="#0E1330" CornerRadius="10" Margin="10,0,0,0"
-                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
-                                            <TextBox x:Name="txtOrdenGrado" Text="1" Height="42" VerticalContentAlignment="Center"
-                                                     Background="Transparent" BorderThickness="0"
-                                                     Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                        </Border>
-                                        <Button x:Name="btnCrearGrado" Grid.Column="2" Content="＋  Crear"
-                                                MinWidth="110" Margin="10,0,0,0"
-                                                Style="{StaticResource BtnVerde}" Click="CrearGrado_Click"/>
-                                    </Grid>
-                                    <TextBlock Text="Nombre y orden (número). El botón Secciones abre las secciones de ese grado."
-                                               FontSize="11" Foreground="#6B5A87" Margin="0,10,0,0"/>
-                                </StackPanel>
-                            </Border>
-                            <Border Background="#111633" CornerRadius="14" Padding="6">
-                                <ItemsControl x:Name="listaGrados"/>
-                            </Border>
-                            <TextBlock x:Name="lblGradosEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
-
-                            <Border Height="1" Background="#22284A" Margin="0,24,0,24"/>
-
-                            <!-- Sección SECCIONES -->
-                            <TextBlock Text="◆  SECCIONES" FontSize="13" FontWeight="Bold"
-                                       Foreground="#00FF87" Margin="0,0,0,12"/>
-                            <TextBlock x:Name="lblSeccionesInfo" Text="Elige un grado (botón «Secciones») para gestionar sus secciones."
-                                       FontSize="12" Foreground="#8891B0" Margin="0,0,0,12" TextWrapping="Wrap"/>
-
-                            <StackPanel x:Name="panelSecciones" Visibility="Collapsed">
-                                <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
-                                    <StackPanel>
-                                        <TextBlock x:Name="lblSeccionesTitulo" Text="CREAR SECCIÓN" FontSize="11"
-                                                   FontWeight="Bold" Foreground="#6B5A87" Margin="0,0,0,10"/>
-                                        <Grid>
-                                            <Grid.ColumnDefinitions>
-                                                <ColumnDefinition Width="*"/>
-                                                <ColumnDefinition Width="Auto"/>
-                                            </Grid.ColumnDefinitions>
-                                            <Border Grid.Column="0" Background="#0E1330" CornerRadius="10"
-                                                    BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
-                                                <TextBox x:Name="txtNuevaSeccion" Height="42" VerticalContentAlignment="Center"
-                                                         Background="Transparent" BorderThickness="0"
-                                                         Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                            </Border>
-                                            <Button x:Name="btnCrearSeccion" Grid.Column="1" Content="＋  Crear"
-                                                    MinWidth="110" Margin="10,0,0,0"
-                                                    Style="{StaticResource BtnVerde}" Click="CrearSeccion_Click"/>
-                                        </Grid>
+                                        <TextBlock Text="Aquí verás las secciones del grado que elijas."
+                                                   Style="{StaticResource AyudaTexto}" TextAlignment="Center"
+                                                   MaxWidth="240" Margin="0,12,0,0"/>
                                     </StackPanel>
-                                </Border>
-                                <Border Background="#111633" CornerRadius="14" Padding="6">
-                                    <ItemsControl x:Name="listaSecciones"/>
-                                </Border>
-                                <TextBlock x:Name="lblSeccionesEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
-                            </StackPanel>
-                            </StackPanel>
-                            </ScrollViewer>
-                            </TabItem>
 
-                            <TabItem Header="Períodos">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <StackPanel Margin="4,12,10,0">
-                            <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
-                                <StackPanel>
-                                    <TextBlock Text="CREAR PERÍODO" FontSize="11" FontWeight="Bold"
-                                               Foreground="#6B5A87" Margin="0,0,0,10"/>
-
-                                    <TextBlock Text="Nombre" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                    <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                            BorderThickness="1" Padding="12,0" Margin="0,0,0,10">
-                                        <TextBox x:Name="txtNombrePeriodo" Height="40" VerticalContentAlignment="Center"
-                                                 Background="Transparent" BorderThickness="0"
-                                                 Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                    </Border>
-
-                                    <Grid Margin="0,0,0,10">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*"/>
-                                            <ColumnDefinition Width="*"/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel Grid.Column="0" Margin="0,0,6,0">
-                                            <TextBlock Text="Fecha inicio (yyyy-MM-dd)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                                    BorderThickness="1" Padding="12,0">
-                                                <TextBox x:Name="txtFechaInicio" Height="40" VerticalContentAlignment="Center"
-                                                         Background="Transparent" BorderThickness="0"
-                                                         Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                            </Border>
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="1" Margin="6,0,0,0">
-                                            <TextBlock Text="Fecha fin (yyyy-MM-dd)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
-                                                    BorderThickness="1" Padding="12,0">
-                                                <TextBox x:Name="txtFechaFin" Height="40" VerticalContentAlignment="Center"
-                                                         Background="Transparent" BorderThickness="0"
-                                                         Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
-                                            </Border>
-                                        </StackPanel>
+                                    <Grid x:Name="panelSecciones" Grid.Row="1" Visibility="Collapsed"
+                                          Background="{StaticResource FondoBrush}">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                            <ItemsControl x:Name="listaSecciones" Margin="0,0,6,0"/>
+                                        </ScrollViewer>
+                                        <Border Grid.Row="1" Style="{StaticResource CajaEstado}">
+                                            <TextBlock x:Name="lblSeccionesEstado" Style="{StaticResource TextoEstado}"/>
+                                        </Border>
                                     </Grid>
+                                </Grid>
+                            </Grid>
+                        </TabItem>
 
-                                    <CheckBox x:Name="chkActivoPeriodo" Content="Activo" IsChecked="True"
-                                              Foreground="White" FontSize="13" Margin="2,2,0,12"/>
+                        <!-- ===== Períodos ===== -->
+                        <TabItem Header="Períodos">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="310"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
 
-                                    <Button x:Name="btnCrearPeriodo" Content="＋  Crear período"
-                                            Style="{StaticResource BtnVerde}" Click="CrearPeriodo_Click"/>
+                                <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                                    <ContentControl Style="{StaticResource Tarjeta}" Margin="0,0,20,20">
+                                        <StackPanel>
+                                            <TextBlock Text="Nuevo período" Style="{StaticResource TituloTarjeta}"/>
+                                            <TextBlock Text="Las fechas van en formato AAAA-MM-DD."
+                                                       Style="{StaticResource SubtituloTarjeta}"/>
+
+                                            <TextBlock Text="Nombre" Style="{StaticResource Etiqueta}"/>
+                                            <TextBox x:Name="txtNombrePeriodo" Tag="Ej.: Año lectivo 2026" Margin="0,0,0,12"/>
+
+                                            <Grid Margin="0,0,0,14">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="*"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Grid.Column="0" Margin="0,0,5,0">
+                                                    <TextBlock Text="Fecha inicio" Style="{StaticResource Etiqueta}"/>
+                                                    <TextBox x:Name="txtFechaInicio" Tag="AAAA-MM-DD"/>
+                                                </StackPanel>
+                                                <StackPanel Grid.Column="1" Margin="5,0,0,0">
+                                                    <TextBlock Text="Fecha fin" Style="{StaticResource Etiqueta}"/>
+                                                    <TextBox x:Name="txtFechaFin" Tag="AAAA-MM-DD"/>
+                                                </StackPanel>
+                                            </Grid>
+
+                                            <CheckBox x:Name="chkActivoPeriodo" Content="Activo" IsChecked="True"
+                                                      Margin="2,0,0,18"/>
+
+                                            <Button x:Name="btnCrearPeriodo" Content="＋  Crear período"
+                                                    Style="{StaticResource BtnPrimario}" Click="CrearPeriodo_Click"/>
+                                        </StackPanel>
+                                    </ContentControl>
+                                </ScrollViewer>
+
+                                <Grid Grid.Column="1">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="Períodos académicos" Style="{StaticResource TituloTarjeta}"
+                                               Margin="4,6,0,14"/>
+                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                        <ItemsControl x:Name="listaPeriodos" Margin="0,0,6,0"/>
+                                    </ScrollViewer>
+                                    <Border Grid.Row="2" Style="{StaticResource CajaEstado}">
+                                        <TextBlock x:Name="lblPeriodosEstado" Style="{StaticResource TextoEstado}"/>
+                                    </Border>
+                                </Grid>
+                            </Grid>
+                        </TabItem>
+
+                        <!-- ===== Asignaciones (deshabilitada: la nueva API no tiene el endpoint de ADMIN) ===== -->
+                        <TabItem>
+                            <TabItem.Header>
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="Asignaciones" VerticalAlignment="Center"/>
+                                    <Border x:Name="pillAsignaciones" Background="White" CornerRadius="9"
+                                            BorderBrush="{StaticResource CoralBrush}" BorderThickness="1"
+                                            Padding="7,1" Margin="7,0,0,0" VerticalAlignment="Center">
+                                        <TextBlock Text="no disponible" FontSize="10.5" FontWeight="ExtraBold"
+                                                   Foreground="{StaticResource CoralBrush}"/>
+                                    </Border>
                                 </StackPanel>
-                            </Border>
-                            <Border Background="#111633" CornerRadius="14" Padding="6">
-                                <ItemsControl x:Name="listaPeriodos"/>
-                            </Border>
-                            <TextBlock x:Name="lblPeriodosEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
-                            </StackPanel>
-                            </ScrollViewer>
-                            </TabItem>
+                            </TabItem.Header>
 
-                            <TabItem Header="Asignaciones">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                            <StackPanel Margin="4,12,10,0">
-                            <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
-                                <StackPanel>
-                                    <TextBlock Text="ASIGNAR DOCENTE A CLASE" FontSize="11" FontWeight="Bold"
-                                               Foreground="#6B5A87" Margin="0,0,0,12"/>
+                            <Grid>
+                                <!-- Nota: por qué la pestaña está deshabilitada -->
+                                <ScrollViewer x:Name="panelAsignacionesNota" VerticalScrollBarVisibility="Auto">
+                                    <ContentControl Style="{StaticResource Tarjeta}" Padding="30,26" Margin="0,0,0,26"
+                                                    MaxWidth="640" HorizontalAlignment="Left">
+                                        <StackPanel>
+                                            <Border Width="56" Height="56" CornerRadius="28" HorizontalAlignment="Left"
+                                                    Background="{StaticResource AmarilloSuaveBrush}">
+                                                <TextBlock Text="!" FontSize="26" FontWeight="ExtraBold"
+                                                           Foreground="{StaticResource AmarilloTextoBrush}"
+                                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                            <TextBlock Text="Asignaciones no disponibles por ahora" Style="{StaticResource TituloTarjeta}"
+                                                       FontSize="20" Margin="0,14,0,0"/>
+                                            <TextBlock Style="{StaticResource AyudaTexto}" FontSize="14" Margin="0,8,0,0">
+                                                La nueva versión de la API no tiene un endpoint para que el ADMIN asigne
+                                                docentes a materias y secciones. La ruta que existe,
+                                                <Run Text="api/docente/clases" FontWeight="ExtraBold" Foreground="{StaticResource TealOscuroBrush}"/>,
+                                                solo sirve para que un DOCENTE vea sus propias clases (requiere rol DOCENTE).
+                                            </TextBlock>
+                                            <TextBlock Style="{StaticResource AyudaTexto}" FontSize="14" Margin="0,10,0,0"
+                                                       Text="Por eso esta pestaña queda deshabilitada: no se hace ninguna llamada a la API desde aquí. Cuando la API agregue ese endpoint, se puede volver a activar."/>
+                                            <Border Background="{StaticResource MentaBrush}" CornerRadius="16" Padding="14,10"
+                                                    Margin="0,18,0,0" HorizontalAlignment="Left">
+                                                <TextBlock FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap"
+                                                           Foreground="{StaticResource TealOscuroBrush}"
+                                                           Text="Las pestañas Materias, Usuarios, Grados y Secciones y Períodos funcionan con normalidad."/>
+                                            </Border>
+                                        </StackPanel>
+                                    </ContentControl>
+                                </ScrollViewer>
 
-                                    <TextBlock Text="Docente" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                    <ComboBox x:Name="cmbAsigDocente" Margin="0,0,0,10"
-                                              Style="{StaticResource ComboOscuro}"
-                                              ItemContainerStyle="{StaticResource ComboItemOscuro}"/>
+                                <!-- Formulario original (oculto mientras no exista el endpoint) -->
+                                <Grid x:Name="panelAsignacionesForm" Visibility="Collapsed">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="310"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
 
-                                    <TextBlock Text="Materia" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                    <ComboBox x:Name="cmbAsigMateria" Margin="0,0,0,10"
-                                              Style="{StaticResource ComboOscuro}"
-                                              ItemContainerStyle="{StaticResource ComboItemOscuro}"/>
+                                    <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                                        <ContentControl Style="{StaticResource Tarjeta}" Margin="0,0,20,20">
+                                            <StackPanel>
+                                                <TextBlock Text="Asignar docente a clase" Style="{StaticResource TituloTarjeta}"
+                                                           Margin="0,0,0,16"/>
 
-                                    <TextBlock Text="Sección" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                    <ComboBox x:Name="cmbAsigSeccion" Margin="0,0,0,10"
-                                              Style="{StaticResource ComboOscuro}"
-                                              ItemContainerStyle="{StaticResource ComboItemOscuro}"/>
+                                                <TextBlock Text="Docente" Style="{StaticResource Etiqueta}"/>
+                                                <ComboBox x:Name="cmbAsigDocente" Margin="0,0,0,12"/>
 
-                                    <TextBlock Text="Período académico" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
-                                    <ComboBox x:Name="cmbAsigPeriodo" Margin="0,0,0,14"
-                                              Style="{StaticResource ComboOscuro}"
-                                              ItemContainerStyle="{StaticResource ComboItemOscuro}"/>
+                                                <TextBlock Text="Materia" Style="{StaticResource Etiqueta}"/>
+                                                <ComboBox x:Name="cmbAsigMateria" Margin="0,0,0,12"/>
 
-                                    <Button x:Name="btnCrearAsignacion" Content="＋  Asignar"
-                                            Style="{StaticResource BtnVerde}" Click="CrearAsignacion_Click"/>
-                                </StackPanel>
-                            </Border>
-                            <Border Background="#111633" CornerRadius="14" Padding="6">
-                                <ItemsControl x:Name="listaAsignaciones"/>
-                            </Border>
-                            <TextBlock x:Name="lblAsignacionesEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
-                            </StackPanel>
-                            </ScrollViewer>
-                            </TabItem>
-                        </TabControl>
+                                                <TextBlock Text="Sección" Style="{StaticResource Etiqueta}"/>
+                                                <ComboBox x:Name="cmbAsigSeccion" Margin="0,0,0,12"/>
+
+                                                <TextBlock Text="Período académico" Style="{StaticResource Etiqueta}"/>
+                                                <ComboBox x:Name="cmbAsigPeriodo" Margin="0,0,0,18"/>
+
+                                                <Button x:Name="btnCrearAsignacion" Content="＋  Asignar"
+                                                        Style="{StaticResource BtnPrimario}" Click="CrearAsignacion_Click"/>
+                                            </StackPanel>
+                                        </ContentControl>
+                                    </ScrollViewer>
+
+                                    <Grid Grid.Column="1">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                            <ItemsControl x:Name="listaAsignaciones" Margin="0,0,6,0"/>
+                                        </ScrollViewer>
+                                        <Border Grid.Row="1" Style="{StaticResource CajaEstado}">
+                                            <TextBlock x:Name="lblAsignacionesEstado" Style="{StaticResource TextoEstado}"/>
+                                        </Border>
+                                    </Grid>
+                                </Grid>
+                            </Grid>
+                        </TabItem>
+                    </TabControl>
                     <!-- ===== FIN VISTA ADMIN ===== -->
-                </StackPanel>
+                </Grid>
             </Grid>
-        </Grid>
-    </Border>
+        </Border>
+    </Grid>
 </Window>

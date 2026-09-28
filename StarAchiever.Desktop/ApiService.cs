@@ -1,10 +1,22 @@
-﻿using System.Net.Http;
+﻿using System.Net;
+using System.Net.Http;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
 namespace StarAchiever.Desktop;
+
+// Rutas de la API, escritas exactamente como las expone la nueva versión.
+public static class Rutas
+{
+    public const string Login = "Auth/login";
+    public const string Materias = "Materias";                     // GET: ADMIN y DOCENTE · POST/PUT/DELETE: ADMIN
+    public const string Grados = "Grados";                         // solo ADMIN
+    public const string Secciones = "Secciones";                   // solo ADMIN
+    public const string Usuarios = "Usuarios";                     // solo ADMIN
+    public const string PeriodosAcademicos = "PeriodosAcademicos"; // solo ADMIN
+}
 
 // Este servicio es el que le habla a tu API. Guarda el token y hace las llamadas.
 public static class ApiService
@@ -36,25 +48,27 @@ public static class ApiService
                 : new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Token);
     }
 
-    // ---- LOGIN ----
-    // Devuelve true si entró bien, y guarda token, rol y nombre.
-    public static async Task<bool> LoginAsync(string usuario, string clave)
+    // ---- LOGIN ---- POST api/Auth/login
+    // Si entra bien guarda token, rol y nombre. Si falla, el resultado trae
+    // el código y el mensaje reales de la API para mostrarlos en pantalla.
+    public static async Task<ApiResult> LoginAsync(string usuario, string clave)
     {
-        var body = new { correoOUsuario = usuario, clave = clave };
-        var contenido = new StringContent(JsonConvert.SerializeObject(body), Encoding.UTF8, "application/json");
+        var res = await PostAsync(Rutas.Login, new { correoOUsuario = usuario, clave = clave });
+        if (!res.Exito) return res;
 
-        var resp = await _http.PostAsync($"{BaseUrl}/auth/login", contenido);
-        if (!resp.IsSuccessStatusCode) return false;
-
-        var json = await resp.Content.ReadAsStringAsync();
-        var data = JObject.Parse(json);
-
+        var data = JObject.Parse(res.Contenido);
         Token = data["token"]?.ToString();
-        Rol = data["usuario"]?["rol"]?.ToString();
+        // El rol se normaliza a mayúsculas (ADMIN / DOCENTE / ESTUDIANTE).
+        Rol = data["usuario"]?["rol"]?.ToString()?.Trim().ToUpperInvariant();
         NombreUsuario = data["usuario"]?["nombreCompleto"]?.ToString();
-        UsuarioId = data["usuario"]?["id"]?.Value<int>() ?? 0;
+        UsuarioId = data["usuario"]?["id"]?.Value<int?>() ?? 0;
 
-        return !string.IsNullOrEmpty(Token);
+        if (string.IsNullOrEmpty(Token))
+        {
+            res.Exito = false;
+            res.Mensaje = "La API respondió sin token.";
+        }
+        return res;
     }
 
     // ---- GET genérico ---- devuelve el JSON crudo de cualquier endpoint
@@ -70,15 +84,7 @@ public static class ApiService
     public static async Task<ApiResult> GetResultAsync(string ruta)
     {
         UsarToken();
-        var resp = await _http.GetAsync($"{BaseUrl}/{ruta}");
-        var body = await resp.Content.ReadAsStringAsync();
-        return new ApiResult
-        {
-            Exito = resp.IsSuccessStatusCode,
-            Codigo = (int)resp.StatusCode,
-            Contenido = body,
-            Mensaje = ExtraerMensaje(body, resp)
-        };
+        return await ResultadoAsync(await _http.GetAsync($"{BaseUrl}/{ruta}"));
     }
 
     // ---- POST genérico ---- manda 'datos' como JSON con el token y devuelve
@@ -86,32 +92,14 @@ public static class ApiService
     public static async Task<ApiResult> PostAsync(string ruta, object datos)
     {
         UsarToken();
-        var contenido = new StringContent(JsonConvert.SerializeObject(datos), Encoding.UTF8, "application/json");
-        var resp = await _http.PostAsync($"{BaseUrl}/{ruta}", contenido);
-        var body = await resp.Content.ReadAsStringAsync();
-        return new ApiResult
-        {
-            Exito = resp.IsSuccessStatusCode,
-            Codigo = (int)resp.StatusCode,
-            Contenido = body,
-            Mensaje = ExtraerMensaje(body, resp)
-        };
+        return await ResultadoAsync(await _http.PostAsync($"{BaseUrl}/{ruta}", Json(datos)));
     }
 
     // ---- PUT genérico ---- actualiza un recurso con el token.
     public static async Task<ApiResult> PutAsync(string ruta, object datos)
     {
         UsarToken();
-        var contenido = new StringContent(JsonConvert.SerializeObject(datos), Encoding.UTF8, "application/json");
-        var resp = await _http.PutAsync($"{BaseUrl}/{ruta}", contenido);
-        var body = await resp.Content.ReadAsStringAsync();
-        return new ApiResult
-        {
-            Exito = resp.IsSuccessStatusCode,
-            Codigo = (int)resp.StatusCode,
-            Contenido = body,
-            Mensaje = ExtraerMensaje(body, resp)
-        };
+        return await ResultadoAsync(await _http.PutAsync($"{BaseUrl}/{ruta}", Json(datos)));
     }
 
     // ---- PATCH genérico ---- para cambios parciales (p. ej. cambiar el estado).
@@ -119,46 +107,100 @@ public static class ApiService
     public static async Task<ApiResult> PatchAsync(string ruta, object? datos = null)
     {
         UsarToken();
-        var json = datos is null ? "{}" : JsonConvert.SerializeObject(datos);
-        var contenido = new StringContent(json, Encoding.UTF8, "application/json");
-        var resp = await _http.PatchAsync($"{BaseUrl}/{ruta}", contenido);
-        var body = await resp.Content.ReadAsStringAsync();
-        return new ApiResult
-        {
-            Exito = resp.IsSuccessStatusCode,
-            Codigo = (int)resp.StatusCode,
-            Contenido = body,
-            Mensaje = ExtraerMensaje(body, resp)
-        };
+        var contenido = datos is null
+            ? new StringContent("{}", Encoding.UTF8, "application/json")
+            : Json(datos);
+        return await ResultadoAsync(await _http.PatchAsync($"{BaseUrl}/{ruta}", contenido));
     }
 
     // ---- DELETE genérico ---- elimina un recurso con el token.
     public static async Task<ApiResult> DeleteAsync(string ruta)
     {
         UsarToken();
-        var resp = await _http.DeleteAsync($"{BaseUrl}/{ruta}");
+        return await ResultadoAsync(await _http.DeleteAsync($"{BaseUrl}/{ruta}"));
+    }
+
+    private static StringContent Json(object datos) =>
+        new(JsonConvert.SerializeObject(datos), Encoding.UTF8, "application/json");
+
+    private static async Task<ApiResult> ResultadoAsync(HttpResponseMessage resp)
+    {
         var body = await resp.Content.ReadAsStringAsync();
         return new ApiResult
         {
             Exito = resp.IsSuccessStatusCode,
             Codigo = (int)resp.StatusCode,
             Contenido = body,
-            Mensaje = ExtraerMensaje(body, resp)
+            Mensaje = resp.IsSuccessStatusCode ? MensajeDeExito(body) : MensajeDeError(body, resp)
         };
     }
 
-    // Intenta sacar el campo "mensaje" del JSON; si no hay, usa el motivo HTTP.
-    private static string ExtraerMensaje(string body, HttpResponseMessage resp)
+    // En una respuesta correcta solo usamos un mensaje explícito de la API
+    // ({ "mensaje": ... } o un texto); si devuelve el objeto creado, no hay mensaje.
+    private static string MensajeDeExito(string body)
     {
         try
         {
             var token = JToken.Parse(body);
-            var msg = token["mensaje"]?.ToString() ?? token["message"]?.ToString();
-            if (!string.IsNullOrWhiteSpace(msg)) return msg!;
+            if (token.Type == JTokenType.String) return token.ToString();
+            if (token is JObject obj) return Campo(obj, "mensaje") ?? Campo(obj, "message") ?? "";
         }
-        catch { /* el cuerpo no era JSON (p. ej. 403/401 sin cuerpo) */ }
-        return resp.ReasonPhrase ?? "";
+        catch (JsonException)
+        {
+            if (EsTextoCorto(body)) return body.Trim();
+        }
+        return "";
     }
+
+    // Saca el mensaje real de un error. Entiende:
+    //  - { "mensaje": "..." } / { "message": "..." } / { "error": "..." } / { "detail": "..." }
+    //  - errores de validación de ASP.NET: { "title": "...", "errors": { "Campo": ["..."] } }
+    //  - un texto plano o un string JSON (p. ej. BadRequest("texto"))
+    // Si no hay nada útil (p. ej. 401/403 sin cuerpo), usa el motivo HTTP.
+    private static string MensajeDeError(string body, HttpResponseMessage resp)
+    {
+        try
+        {
+            var token = JToken.Parse(body);
+            if (token.Type == JTokenType.String && !string.IsNullOrWhiteSpace(token.ToString()))
+                return token.ToString();
+
+            if (token is JObject obj)
+            {
+                var msg = Campo(obj, "mensaje") ?? Campo(obj, "message") ?? Campo(obj, "error") ?? Campo(obj, "detail");
+                if (msg != null) return msg;
+
+                var errores = obj.GetValue("errors", StringComparison.OrdinalIgnoreCase);
+                var lista = errores switch
+                {
+                    JObject porCampo => porCampo.Properties().SelectMany(p =>
+                        p.Value is JArray a ? a.Select(x => $"{p.Name}: {x}") : new[] { $"{p.Name}: {p.Value}" }),
+                    JArray arr => arr.Select(x => x.ToString()),
+                    _ => Enumerable.Empty<string>()
+                };
+                var texto = string.Join(" | ", lista);
+                if (!string.IsNullOrWhiteSpace(texto)) return texto;
+
+                var titulo = Campo(obj, "title");
+                if (titulo != null) return titulo;
+            }
+        }
+        catch (JsonException)
+        {
+            // El cuerpo no era JSON: si es un texto corto (no una página HTML), lo mostramos tal cual.
+            if (EsTextoCorto(body)) return body.Trim();
+        }
+        return resp.ReasonPhrase ?? ((HttpStatusCode)resp.StatusCode).ToString();
+    }
+
+    private static string? Campo(JObject obj, string nombre)
+    {
+        var valor = obj.GetValue(nombre, StringComparison.OrdinalIgnoreCase)?.ToString();
+        return string.IsNullOrWhiteSpace(valor) ? null : valor;
+    }
+
+    private static bool EsTextoCorto(string body) =>
+        !string.IsNullOrWhiteSpace(body) && body.Length <= 500 && !body.TrimStart().StartsWith("<");
 }
 
 // Resultado de una llamada a la API, con lo necesario para depurar en pantalla.

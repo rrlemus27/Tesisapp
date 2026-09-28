@@ -3,99 +3,151 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Star-Achiever" Height="720" Width="1100"
         WindowStartupLocation="CenterScreen"
-        WindowStyle="None" AllowsTransparency="True" Background="Transparent">
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        FontFamily="{StaticResource FuenteApp}" Foreground="{StaticResource NavyBrush}">
 
-    <Border CornerRadius="18" Background="#0A0E27">
-        <Border.Effect>
-            <DropShadowEffect Color="Black" BlurRadius="30" ShadowDepth="0" Opacity="0.6"/>
-        </Border.Effect>
+    <Grid Margin="16">
+        <!-- Sombra de la ventana (en un borde aparte, detrás del contenido) -->
+        <Border CornerRadius="28" Background="{StaticResource FondoBrush}" Effect="{StaticResource SombraVentana}"/>
 
-        <Grid>
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="1.1*"/>
-                <ColumnDefinition Width="1*"/>
-            </Grid.ColumnDefinitions>
+        <Border CornerRadius="28" Background="{StaticResource FondoBrush}"
+                BorderBrush="{StaticResource BordeBrush}" BorderThickness="1">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="1.05*"/>
+                    <ColumnDefinition Width="1*"/>
+                </Grid.ColumnDefinitions>
 
-            <!-- Barra superior para mover/cerrar la ventana -->
-            <Border Grid.ColumnSpan="2" VerticalAlignment="Top" Height="42"
-                    Background="Transparent" MouseLeftButtonDown="Barra_Mover" Panel.ZIndex="10">
-                <Button Content="✕" Width="42" Height="42" HorizontalAlignment="Right"
-                        Background="Transparent" Foreground="#8891B0" BorderThickness="0"
-                        FontSize="16" Cursor="Hand" Click="Cerrar_Click"/>
-            </Border>
+                <!-- Barra superior para mover/cerrar la ventana -->
+                <Border Grid.ColumnSpan="2" VerticalAlignment="Top" Height="64"
+                        Background="Transparent" MouseLeftButtonDown="Barra_Mover" Panel.ZIndex="10">
+                    <Button Content="✕" Style="{StaticResource BtnCerrar}" HorizontalAlignment="Right"
+                            Margin="0,0,18,0" Click="Cerrar_Click" ToolTip="Cerrar"/>
+                </Border>
 
-            <!-- Panel izquierdo: marca -->
-            <Border Grid.Column="0" CornerRadius="18,0,0,18">
-                <Border.Background>
-                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                        <GradientStop Color="#3D195B" Offset="0"/>
-                        <GradientStop Color="#963CBD" Offset="0.55"/>
-                        <GradientStop Color="#00C46A" Offset="1.4"/>
-                    </LinearGradientBrush>
-                </Border.Background>
-                <StackPanel VerticalAlignment="Center" Margin="55,0">
-                    <TextBlock Text="★" FontSize="60" Foreground="#FFD600"/>
-                    <TextBlock Text="STAR-ACHIEVER" FontSize="40" FontWeight="Bold"
-                               Foreground="White" Margin="0,10,0,0"/>
-                    <TextBlock Text="Plataforma de Inteligencia Pedagógica y Gamificación Adaptativa"
-                               FontSize="15" Foreground="#E8D8FF" TextWrapping="Wrap" Margin="0,14,0,0"/>
-                    <Border Background="#FFD600" CornerRadius="30" Padding="16,9"
-                            HorizontalAlignment="Left" Margin="0,28,0,0">
-                        <TextBlock Text="DEMOSTRACIÓN · TESIS 2026" FontWeight="Bold"
-                                   Foreground="#3D195B" FontSize="12"/>
+                <!-- ===== Panel izquierdo: marca, con un pequeño "espacio" de fondo ===== -->
+                <Border Grid.Column="0" CornerRadius="27,0,0,27" Margin="0">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                            <GradientStop Color="#08AAA8" Offset="0"/>
+                            <GradientStop Color="#087D80" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                    <Grid>
+                        <!-- Decoración: planetas y estrellas -->
+                        <Canvas IsHitTestVisible="False" ClipToBounds="True">
+                            <Ellipse Canvas.Right="-40" Canvas.Top="-40" Width="200" Height="200"
+                                     Fill="White" Opacity="0.08"/>
+                            <Ellipse Canvas.Left="120" Canvas.Bottom="-130" Width="260" Height="260"
+                                     Fill="White" Opacity="0.06"/>
+
+                            <!-- Planeta amarillo con anillo -->
+                            <Ellipse Canvas.Right="70" Canvas.Bottom="80" Width="120" Height="120"
+                                     Fill="{StaticResource AmarilloBrush}"/>
+                            <Ellipse Canvas.Right="92" Canvas.Bottom="148" Width="26" Height="16"
+                                     Fill="#F2BC00" Opacity="0.7"/>
+                            <Ellipse Canvas.Right="118" Canvas.Bottom="104" Width="16" Height="12"
+                                     Fill="#F2BC00" Opacity="0.7"/>
+                            <Ellipse Canvas.Right="30" Canvas.Bottom="118" Width="200" Height="46"
+                                     Stroke="White" StrokeThickness="5" Opacity="0.9"
+                                     RenderTransformOrigin="0.5,0.5">
+                                <Ellipse.RenderTransform>
+                                    <RotateTransform Angle="-16"/>
+                                </Ellipse.RenderTransform>
+                            </Ellipse>
+
+                            <!-- Planeta coral y luna morada -->
+                            <Ellipse Canvas.Right="70" Canvas.Top="110" Width="54" Height="54"
+                                     Fill="{StaticResource CoralBrush}"/>
+                            <Ellipse Canvas.Right="84" Canvas.Top="122" Width="12" Height="9"
+                                     Fill="White" Opacity="0.35"/>
+                            <Ellipse Canvas.Left="60" Canvas.Top="92" Width="26" Height="26"
+                                     Fill="{StaticResource MoradoBrush}" Opacity="0.9"/>
+
+                            <!-- Estrellas -->
+                            <TextBlock Canvas.Left="150" Canvas.Top="70" Text="✦" FontSize="22" Foreground="White" Opacity="0.9"/>
+                            <TextBlock Canvas.Right="170" Canvas.Top="52" Text="★" FontSize="16" Foreground="{StaticResource AmarilloBrush}"/>
+                            <TextBlock Canvas.Right="40" Canvas.Top="220" Text="✦" FontSize="14" Foreground="White" Opacity="0.8"/>
+                            <TextBlock Canvas.Left="46" Canvas.Bottom="150" Text="★" FontSize="20" Foreground="{StaticResource AmarilloBrush}"/>
+                            <TextBlock Canvas.Left="210" Canvas.Bottom="60" Text="✦" FontSize="16" Foreground="White" Opacity="0.75"/>
+                            <TextBlock Canvas.Right="250" Canvas.Bottom="200" Text="✦" FontSize="11" Foreground="White" Opacity="0.7"/>
+                            <Ellipse Canvas.Left="110" Canvas.Top="150" Width="6" Height="6" Fill="White" Opacity="0.6"/>
+                            <Ellipse Canvas.Right="130" Canvas.Top="300" Width="5" Height="5" Fill="White" Opacity="0.6"/>
+                            <Ellipse Canvas.Left="300" Canvas.Bottom="110" Width="7" Height="7" Fill="White" Opacity="0.5"/>
+                        </Canvas>
+
+                        <StackPanel VerticalAlignment="Center" Margin="56,0,56,40">
+                            <Border Width="68" Height="68" CornerRadius="22" HorizontalAlignment="Left"
+                                    Background="{StaticResource AmarilloBrush}">
+                                <TextBlock Text="★" FontSize="34" Foreground="{StaticResource AmarilloTextoBrush}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <TextBlock Text="Star-Achiever" FontSize="44" FontWeight="ExtraBold"
+                                       Foreground="White" Margin="0,18,0,0"/>
+                            <TextBlock Text="Plataforma de Inteligencia Pedagógica y Gamificación Adaptativa"
+                                       FontSize="17" FontWeight="SemiBold" Foreground="#E9FFFC"
+                                       TextWrapping="Wrap" MaxWidth="360" HorizontalAlignment="Left"
+                                       Margin="0,10,0,0"/>
+
+                            <WrapPanel Margin="0,22,0,0">
+                                <Border Background="{StaticResource BlancoTranslucidoBrush}" CornerRadius="16"
+                                        Padding="14,6" Margin="0,0,8,8">
+                                    <TextBlock Text="★  Logros" FontSize="13" FontWeight="Bold" Foreground="White"/>
+                                </Border>
+                                <Border Background="{StaticResource BlancoTranslucidoBrush}" CornerRadius="16"
+                                        Padding="14,6" Margin="0,0,8,8">
+                                    <TextBlock Text="◆  Retos" FontSize="13" FontWeight="Bold" Foreground="White"/>
+                                </Border>
+                                <Border Background="{StaticResource BlancoTranslucidoBrush}" CornerRadius="16"
+                                        Padding="14,6" Margin="0,0,8,8">
+                                    <TextBlock Text="●  Progreso" FontSize="13" FontWeight="Bold" Foreground="White"/>
+                                </Border>
+                            </WrapPanel>
+
+                            <Border Background="{StaticResource AmarilloBrush}" CornerRadius="18" Padding="16,8"
+                                    HorizontalAlignment="Left" Margin="0,18,0,0">
+                                <TextBlock Text="DEMOSTRACIÓN · TESIS 2026" FontWeight="ExtraBold"
+                                           Foreground="{StaticResource AmarilloTextoBrush}" FontSize="12"/>
+                            </Border>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- ===== Panel derecho: formulario ===== -->
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="60,0">
+                    <Border Background="{StaticResource MentaBrush}" CornerRadius="16" Padding="14,6"
+                            HorizontalAlignment="Left">
+                        <TextBlock Text="¡Hola de nuevo!" FontSize="13" FontWeight="ExtraBold"
+                                   Foreground="{StaticResource TealOscuroBrush}"/>
                     </Border>
+                    <TextBlock Text="Inicia sesión" FontSize="34" FontWeight="ExtraBold" Margin="0,12,0,0"/>
+                    <TextBlock Text="Ingresa con tu usuario o correo para continuar tu aventura."
+                               FontSize="15" Foreground="{StaticResource ApagadoBrush}"
+                               TextWrapping="Wrap" Margin="0,4,0,28"/>
+
+                    <TextBlock Text="Usuario o correo" Style="{StaticResource Etiqueta}"/>
+                    <TextBox x:Name="txtUsuario" MinHeight="52" FontSize="15"
+                             Tag="Escribe tu usuario o correo"/>
+
+                    <TextBlock Text="Contraseña" Style="{StaticResource Etiqueta}" Margin="2,18,0,6"/>
+                    <PasswordBox x:Name="txtClave" MinHeight="52" FontSize="15"/>
+
+                    <Border x:Name="brdError" Style="{StaticResource CajaEstado}" Margin="0,16,0,0"
+                            Background="{StaticResource CoralSuaveBrush}" BorderBrush="{StaticResource CoralBrush}"
+                            Visibility="Collapsed">
+                        <TextBlock x:Name="lblError" Style="{StaticResource TextoEstado}"/>
+                    </Border>
+
+                    <Button x:Name="btnLogin" Content="Ingresar" Height="54" FontSize="16" Margin="0,26,0,0"
+                            Style="{StaticResource BtnPrimario}" IsDefault="True" Click="Login_Click"/>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,20,0,0">
+                        <Ellipse Width="8" Height="8" Fill="{StaticResource VerdeBrush}" VerticalAlignment="Center"/>
+                        <TextBlock Text="Conectando con la API en localhost:7173" FontSize="12"
+                                   Foreground="{StaticResource ApagadoBrush}" Margin="8,0,0,0"/>
+                    </StackPanel>
                 </StackPanel>
-            </Border>
-
-            <!-- Panel derecho: formulario -->
-            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="55,0">
-                <TextBlock Text="Bienvenido de nuevo" FontSize="28" FontWeight="Bold" Foreground="White"/>
-                <TextBlock Text="Inicia sesión para continuar" FontSize="14" Foreground="#8891B0" Margin="0,4,0,30"/>
-
-                <TextBlock Text="USUARIO O CORREO" FontSize="11" Foreground="#8891B0" FontWeight="Bold" Margin="0,0,0,6"/>
-                <Border Background="#161B33" CornerRadius="10" Padding="14,4">
-                    <TextBox x:Name="txtUsuario" Background="Transparent" BorderThickness="0"
-                             Foreground="White" FontSize="15" Height="30" VerticalContentAlignment="Center"
-                             CaretBrush="White"/>
-                </Border>
-
-                <TextBlock Text="CONTRASEÑA" FontSize="11" Foreground="#8891B0" FontWeight="Bold" Margin="0,18,0,6"/>
-                <Border Background="#161B33" CornerRadius="10" Padding="14,4">
-                    <PasswordBox x:Name="txtClave" Background="Transparent" BorderThickness="0"
-                                 Foreground="White" FontSize="15" Height="30" VerticalContentAlignment="Center"
-                                 CaretBrush="White"/>
-                </Border>
-
-                <TextBlock x:Name="lblError" Foreground="#FF5C7A" FontSize="13" Margin="0,14,0,0"
-                           Visibility="Collapsed"/>
-
-                <Button x:Name="btnLogin" Content="INGRESAR" Height="48" Margin="0,26,0,0"
-                        Foreground="White" FontWeight="Bold" FontSize="15" BorderThickness="0"
-                        Cursor="Hand" Click="Login_Click">
-                    <Button.Style>
-                        <Style TargetType="Button">
-                            <Setter Property="Background" Value="#00C46A"/>
-                            <Setter Property="Template">
-                                <Setter.Value>
-                                    <ControlTemplate TargetType="Button">
-                                        <Border Background="{TemplateBinding Background}" CornerRadius="10">
-                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                                        </Border>
-                                    </ControlTemplate>
-                                </Setter.Value>
-                            </Setter>
-                            <Style.Triggers>
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter Property="Background" Value="#00E67D"/>
-                                </Trigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Button.Style>
-                </Button>
-
-                <TextBlock Text="Conectando con la API en localhost:7173" FontSize="11"
-                           Foreground="#4A5578" Margin="0,20,0,0" HorizontalAlignment="Center"/>
-            </StackPanel>
-        </Grid>
-    </Border>
+            </Grid>
+        </Border>
+    </Grid>
 </Window>

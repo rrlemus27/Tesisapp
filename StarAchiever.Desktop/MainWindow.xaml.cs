@@ -20,15 +20,15 @@ public partial class MainWindow : Window
 
     private async void Login_Click(object sender, RoutedEventArgs e)
     {
-        lblError.Visibility = Visibility.Collapsed;
-        btnLogin.Content = "CONECTANDO...";
+        brdError.Visibility = Visibility.Collapsed;
+        btnLogin.Content = "Conectando...";
         btnLogin.IsEnabled = false;
 
         try
         {
-            var ok = await ApiService.LoginAsync(txtUsuario.Text.Trim(), txtClave.Password);
+            var res = await ApiService.LoginAsync(txtUsuario.Text.Trim(), txtClave.Password);
 
-            if (ok)
+            if (res.Exito)
             {
                 // Abre el dashboard y cierra el login
                 var dash = new DashboardWindow();
@@ -37,18 +37,22 @@ public partial class MainWindow : Window
             }
             else
             {
-                lblError.Text = "Credenciales inválidas. Verifica usuario y contraseña.";
-                lblError.Visibility = Visibility.Visible;
+                // Mostramos el error real de la API (código + mensaje).
+                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
+                lblError.Text = res.Codigo == 401
+                    ? $"Credenciales inválidas. Verifica usuario y contraseña. (Error 401: {detalle})"
+                    : $"No se pudo iniciar sesión. (Error {res.Codigo}: {detalle})";
+                brdError.Visibility = Visibility.Visible;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            lblError.Text = "No se pudo conectar con la API. ¿Está corriendo en localhost:7173?";
-            lblError.Visibility = Visibility.Visible;
+            lblError.Text = $"No se pudo conectar con la API. ¿Está corriendo en localhost:7173? ({ex.Message})";
+            brdError.Visibility = Visibility.Visible;
         }
         finally
         {
-            btnLogin.Content = "INGRESAR";
+            btnLogin.Content = "Ingresar";
             btnLogin.IsEnabled = true;
         }
     }

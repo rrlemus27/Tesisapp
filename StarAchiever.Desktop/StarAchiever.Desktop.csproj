@@ -12,4 +12,9 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Fuente Nunito (SIL Open Font License, ver Fonts/OFL.txt) embebida en la app. -->
+    <Resource Include="Fonts\*.ttf" />
+  </ItemGroup>
+
 </Project>
