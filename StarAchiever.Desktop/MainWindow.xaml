@@ -1,0 +1,101 @@
+﻿<Window x:Class="StarAchiever.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Star-Achiever" Height="720" Width="1100"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent">
+
+    <Border CornerRadius="18" Background="#0A0E27">
+        <Border.Effect>
+            <DropShadowEffect Color="Black" BlurRadius="30" ShadowDepth="0" Opacity="0.6"/>
+        </Border.Effect>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="1.1*"/>
+                <ColumnDefinition Width="1*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Barra superior para mover/cerrar la ventana -->
+            <Border Grid.ColumnSpan="2" VerticalAlignment="Top" Height="42"
+                    Background="Transparent" MouseLeftButtonDown="Barra_Mover" Panel.ZIndex="10">
+                <Button Content="✕" Width="42" Height="42" HorizontalAlignment="Right"
+                        Background="Transparent" Foreground="#8891B0" BorderThickness="0"
+                        FontSize="16" Cursor="Hand" Click="Cerrar_Click"/>
+            </Border>
+
+            <!-- Panel izquierdo: marca -->
+            <Border Grid.Column="0" CornerRadius="18,0,0,18">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#3D195B" Offset="0"/>
+                        <GradientStop Color="#963CBD" Offset="0.55"/>
+                        <GradientStop Color="#00C46A" Offset="1.4"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+                <StackPanel VerticalAlignment="Center" Margin="55,0">
+                    <TextBlock Text="★" FontSize="60" Foreground="#FFD600"/>
+                    <TextBlock Text="STAR-ACHIEVER" FontSize="40" FontWeight="Bold"
+                               Foreground="White" Margin="0,10,0,0"/>
+                    <TextBlock Text="Plataforma de Inteligencia Pedagógica y Gamificación Adaptativa"
+                               FontSize="15" Foreground="#E8D8FF" TextWrapping="Wrap" Margin="0,14,0,0"/>
+                    <Border Background="#FFD600" CornerRadius="30" Padding="16,9"
+                            HorizontalAlignment="Left" Margin="0,28,0,0">
+                        <TextBlock Text="DEMOSTRACIÓN · TESIS 2026" FontWeight="Bold"
+                                   Foreground="#3D195B" FontSize="12"/>
+                    </Border>
+                </StackPanel>
+            </Border>
+
+            <!-- Panel derecho: formulario -->
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="55,0">
+                <TextBlock Text="Bienvenido de nuevo" FontSize="28" FontWeight="Bold" Foreground="White"/>
+                <TextBlock Text="Inicia sesión para continuar" FontSize="14" Foreground="#8891B0" Margin="0,4,0,30"/>
+
+                <TextBlock Text="USUARIO O CORREO" FontSize="11" Foreground="#8891B0" FontWeight="Bold" Margin="0,0,0,6"/>
+                <Border Background="#161B33" CornerRadius="10" Padding="14,4">
+                    <TextBox x:Name="txtUsuario" Background="Transparent" BorderThickness="0"
+                             Foreground="White" FontSize="15" Height="30" VerticalContentAlignment="Center"
+                             CaretBrush="White"/>
+                </Border>
+
+                <TextBlock Text="CONTRASEÑA" FontSize="11" Foreground="#8891B0" FontWeight="Bold" Margin="0,18,0,6"/>
+                <Border Background="#161B33" CornerRadius="10" Padding="14,4">
+                    <PasswordBox x:Name="txtClave" Background="Transparent" BorderThickness="0"
+                                 Foreground="White" FontSize="15" Height="30" VerticalContentAlignment="Center"
+                                 CaretBrush="White"/>
+                </Border>
+
+                <TextBlock x:Name="lblError" Foreground="#FF5C7A" FontSize="13" Margin="0,14,0,0"
+                           Visibility="Collapsed"/>
+
+                <Button x:Name="btnLogin" Content="INGRESAR" Height="48" Margin="0,26,0,0"
+                        Foreground="White" FontWeight="Bold" FontSize="15" BorderThickness="0"
+                        Cursor="Hand" Click="Login_Click">
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Background" Value="#00C46A"/>
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="Button">
+                                        <Border Background="{TemplateBinding Background}" CornerRadius="10">
+                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                        </Border>
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                            <Style.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter Property="Background" Value="#00E67D"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+
+                <TextBlock Text="Conectando con la API en localhost:7173" FontSize="11"
+                           Foreground="#4A5578" Margin="0,20,0,0" HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Grid>
+    </Border>
+</Window>

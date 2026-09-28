@@ -1,0 +1,973 @@
+﻿<Window x:Class="StarAchiever.Desktop.DashboardWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Star-Achiever" Height="760" Width="1200"
+        WindowStartupLocation="CenterScreen"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent">
+
+    <Window.Resources>
+        <!-- Botón pequeño para las acciones de cada fila (Editar / Eliminar). -->
+        <Style x:Key="BtnAccion" TargetType="Button">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="MinWidth" Value="80"/>
+            <Setter Property="Margin" Value="6,0,0,0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="8"
+                                Padding="12,0">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Opacity" Value="0.85"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.4"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- Botón verde neón reutilizable para formularios (Crear …). -->
+        <Style x:Key="BtnVerde" TargetType="Button">
+            <Setter Property="Background" Value="#00FF87"/>
+            <Setter Property="Foreground" Value="#0A0E27"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Height" Value="42"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="10">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#4DFFB0"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Background" Value="#2A3358"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+
+        <!-- ComboBox oscuro (para elegir el rol al crear usuario). -->
+        <Style x:Key="ComboOscuro" TargetType="ComboBox">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Height" Value="42"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <ToggleButton Focusable="False" ClickMode="Press"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border Background="#0E1330" CornerRadius="10"
+                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <ContentPresenter Grid.Column="0" VerticalAlignment="Center"
+                                                    Content="{Binding SelectionBoxItem, RelativeSource={RelativeSource AncestorType=ComboBox}}"
+                                                    ContentTemplate="{Binding SelectionBoxItemTemplate, RelativeSource={RelativeSource AncestorType=ComboBox}}"/>
+                                                <Path Grid.Column="1" VerticalAlignment="Center" Margin="8,0,0,0"
+                                                      Data="M0,0 L8,0 L4,5 Z" Fill="#00FF87"/>
+                                            </Grid>
+                                        </Border>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <Popup IsOpen="{TemplateBinding IsDropDownOpen}" Placement="Bottom"
+                                   AllowsTransparency="True" Focusable="False" PopupAnimation="Slide">
+                                <Border Background="#151B3B" BorderBrush="#3D2A54" BorderThickness="1"
+                                        CornerRadius="10" Margin="0,4,0,0"
+                                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}">
+                                    <StackPanel IsItemsHost="True"/>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="ComboItemOscuro" TargetType="ComboBoxItem">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Padding" Value="12,9"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="cont" Background="Transparent" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="cont" Property="Background" Value="#26305A"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Pestañas oscuras (TabControl / TabItem) -->
+        <Style x:Key="TabsOscuro" TargetType="TabControl">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+        </Style>
+        <Style x:Key="TabItemOscuro" TargetType="TabItem">
+            <Setter Property="Foreground" Value="#8891B0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border x:Name="tab" CornerRadius="10" Background="#151B3B"
+                                Padding="16,9" Margin="0,0,8,10">
+                            <ContentPresenter ContentSource="Header" HorizontalAlignment="Center"
+                                              VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="tab" Property="Background" Value="#3D195B"/>
+                                <Setter Property="Foreground" Value="#00FF87"/>
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="tab" Property="Background" Value="#26305A"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
+    <Border CornerRadius="18" Background="#0A0E27">
+        <Border.Effect>
+            <DropShadowEffect Color="Black" BlurRadius="30" ShadowDepth="0" Opacity="0.6"/>
+        </Border.Effect>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="240"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- ===== SIDEBAR ===== -->
+            <Border Grid.Column="0" CornerRadius="18,0,0,18">
+                <Border.Background>
+                    <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                        <GradientStop Color="#3D195B" Offset="0"/>
+                        <GradientStop Color="#1A0B2E" Offset="1"/>
+                    </LinearGradientBrush>
+                </Border.Background>
+                <StackPanel Margin="24,30">
+                    <TextBlock Text="★ STAR-ACHIEVER" FontSize="17" FontWeight="Bold" Foreground="White"/>
+                    <Border Height="1" Background="#3D2A54" Margin="0,20"/>
+
+                    <Border Background="#251540" CornerRadius="12" Padding="14" Margin="0,0,0,20">
+                        <StackPanel>
+                            <TextBlock x:Name="lblRolBadge" Text="ROL" FontSize="10" FontWeight="Bold"
+                                       Foreground="#00FF87"/>
+                            <TextBlock x:Name="lblNombre" Text="Usuario" FontSize="15" FontWeight="Bold"
+                                       Foreground="White" TextWrapping="Wrap" Margin="0,4,0,0"/>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Text="PANEL" FontSize="10" FontWeight="Bold" Foreground="#6B5A87" Margin="4,0,0,10"/>
+                    <TextBlock x:Name="lblMenuItem" Text="◆  Inicio" FontSize="14" Foreground="#E8D8FF" Margin="4,0,0,14"/>
+                    <TextBlock Text="◇  Mi cuenta" FontSize="14" Foreground="#6B5A87" Margin="4,0,0,14"/>
+                    <TextBlock Text="◇  Configuración" FontSize="14" Foreground="#6B5A87" Margin="4,0,0,14"/>
+
+                    <Button Content="⏻  Cerrar sesión" Height="44" Margin="0,30,0,0"
+                            Foreground="White" FontWeight="Bold" FontSize="13" BorderThickness="0"
+                            Cursor="Hand" Click="CerrarSesion_Click">
+                        <Button.Style>
+                            <Style TargetType="Button">
+                                <Setter Property="Background" Value="#FF3B5C"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="Button">
+                                            <Border Background="{TemplateBinding Background}" CornerRadius="10">
+                                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter Property="Background" Value="#FF5C7A"/>
+                                    </Trigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== CONTENIDO ===== -->
+            <Grid Grid.Column="1" Margin="0">
+                <!-- Barra superior -->
+                <Border VerticalAlignment="Top" Height="52" MouseLeftButtonDown="Barra_Mover">
+                    <Grid>
+                        <TextBlock x:Name="lblTitulo" Text="Panel" FontSize="20" FontWeight="Bold"
+                                   Foreground="White" VerticalAlignment="Center" Margin="30,0,0,0"/>
+                        <Button Content="✕" Width="42" Height="42" HorizontalAlignment="Right"
+                                Background="Transparent" Foreground="#8891B0" BorderThickness="0"
+                                FontSize="16" Cursor="Hand" Click="Cerrar_Click"/>
+                    </Grid>
+                </Border>
+
+                <!-- Tarjetas de resumen -->
+                <StackPanel Margin="30,70,30,0" VerticalAlignment="Top">
+                    <TextBlock x:Name="lblBienvenida" Text="Bienvenido" FontSize="15" Foreground="#8891B0" Margin="0,0,0,16"/>
+
+                    <StackPanel x:Name="panelStats" Orientation="Horizontal" Margin="0,0,0,24"/>
+
+                    <!-- ===== VISTA GENÉRICA (DOCENTE / ESTUDIANTE / otros roles) ===== -->
+                    <ScrollViewer x:Name="panelGenerico" MaxHeight="600" VerticalScrollBarVisibility="Auto">
+                    <StackPanel>
+                    <!-- Dos columnas: lista principal a la izquierda, temas (DOCENTE) a la derecha -->
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <!-- Columna izquierda: lista de datos traídos de la API -->
+                        <StackPanel Grid.Column="0">
+                            <TextBlock x:Name="lblSeccion" Text="Datos" FontSize="16" FontWeight="Bold"
+                                       Foreground="White" Margin="0,0,0,12"/>
+                            <Border Background="#111633" CornerRadius="14" Padding="6" Height="360">
+                                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl x:Name="listaDatos"/>
+                                </ScrollViewer>
+                            </Border>
+                            <TextBlock x:Name="lblEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,10,0,0"/>
+                        </StackPanel>
+
+                        <!-- Columna derecha: pestañas Temas / Preguntas / Actividades (solo DOCENTE) -->
+                        <TabControl x:Name="tabsDocente" Grid.Column="1" Visibility="Collapsed"
+                                Width="470" Margin="20,0,0,0" VerticalAlignment="Top" Height="580"
+                                Style="{StaticResource TabsOscuro}"
+                                ItemContainerStyle="{StaticResource TabItemOscuro}">
+                            <TabItem Header="Temas">
+                            <Border Background="#111633" CornerRadius="14" Padding="12">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel>
+                                <TextBlock x:Name="lblTemasTitulo" Text="Temas" FontSize="15" FontWeight="Bold"
+                                           Foreground="White" TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+                                <TextBlock Text="CREAR TEMA" FontSize="11" FontWeight="Bold"
+                                           Foreground="#00FF87" Margin="0,0,0,8"/>
+                                <Border Background="#0E1330" CornerRadius="10"
+                                        BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
+                                    <TextBox x:Name="txtNuevoTema" Height="40"
+                                             VerticalContentAlignment="Center"
+                                             Background="Transparent" BorderThickness="0"
+                                             Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                </Border>
+                                <Button x:Name="btnCrearTema" Content="＋  Crear tema"
+                                        Height="40" Margin="0,10,0,0"
+                                        Foreground="#0A0E27" FontWeight="Bold" FontSize="13"
+                                        Cursor="Hand" Click="CrearTema_Click">
+                                    <Button.Style>
+                                        <Style TargetType="Button">
+                                            <Setter Property="Background" Value="#00FF87"/>
+                                            <Setter Property="Template">
+                                                <Setter.Value>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border Background="{TemplateBinding Background}" CornerRadius="10">
+                                                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                                        </Border>
+                                                    </ControlTemplate>
+                                                </Setter.Value>
+                                            </Setter>
+                                            <Style.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter Property="Background" Value="#4DFFB0"/>
+                                                </Trigger>
+                                                <Trigger Property="IsEnabled" Value="False">
+                                                    <Setter Property="Background" Value="#2A3358"/>
+                                                </Trigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </Button.Style>
+                                </Button>
+
+                                <TextBlock Text="TEMAS DE LA MATERIA (elige uno)" FontSize="11" FontWeight="Bold"
+                                           Foreground="#6B5A87" Margin="0,18,0,8"/>
+                                <Border Background="#0E1330" CornerRadius="12" Padding="6">
+                                    <ItemsControl x:Name="listaTemas"/>
+                                </Border>
+                                <TextBlock x:Name="lblTemasEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
+
+                                <!-- Subtemas del tema (aparece al elegir un tema) -->
+                                <StackPanel x:Name="panelSubtemas" Visibility="Collapsed">
+                                    <Border Height="1" Background="#22284A" Margin="0,18,0,16"/>
+                                    <TextBlock x:Name="lblTemaDetalleTitulo" Text="Tema" FontSize="14"
+                                               FontWeight="Bold" Foreground="White" TextWrapping="Wrap" Margin="0,0,0,14"/>
+                                    <TextBlock Text="SUBTEMAS" FontSize="12" FontWeight="Bold"
+                                               Foreground="#00FF87" Margin="0,0,0,8"/>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0" Background="#0E1330" CornerRadius="10"
+                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
+                                            <TextBox x:Name="txtNuevoSubtema" Height="38" VerticalContentAlignment="Center"
+                                                     Background="Transparent" BorderThickness="0"
+                                                     Foreground="White" CaretBrush="#00FF87" FontSize="13"/>
+                                        </Border>
+                                        <Button x:Name="btnCrearSubtema" Grid.Column="1" Content="＋" MinWidth="46"
+                                                Height="38" Margin="8,0,0,0"
+                                                Style="{StaticResource BtnVerde}" Click="CrearSubtema_Click"/>
+                                    </Grid>
+                                    <Border Background="#0E1330" CornerRadius="12" Padding="6">
+                                        <ItemsControl x:Name="listaSubtemas"/>
+                                    </Border>
+                                    <TextBlock x:Name="lblSubtemasEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                            </ScrollViewer>
+                            </Border>
+                            </TabItem>
+
+                            <TabItem Header="Preguntas">
+                            <Border Background="#111633" CornerRadius="14" Padding="12">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel>
+                                <TextBlock Text="Elegí un tema en la pestaña «Temas» para crear y ver preguntas."
+                                           FontSize="11" Foreground="#6B5A87" Margin="0,0,0,10" TextWrapping="Wrap"/>
+                                <StackPanel x:Name="panelPregunta" Visibility="Collapsed">
+                                    <TextBlock x:Name="lblPreguntaTitulo" Text="Crear pregunta" FontSize="13"
+                                               FontWeight="Bold" Foreground="#00FF87" TextWrapping="Wrap" Margin="0,0,0,12"/>
+
+                                    <TextBlock Text="Enunciado" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                    <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                            BorderThickness="1" Padding="10,6" Margin="0,0,0,10">
+                                        <TextBox x:Name="txtEnunciado" MinHeight="56" AcceptsReturn="True"
+                                                 TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                                 Background="Transparent" BorderThickness="0"
+                                                 Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                    </Border>
+
+                                    <TextBlock Text="Explicación (opcional)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                    <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                            BorderThickness="1" Padding="10,6" Margin="0,0,0,12">
+                                        <TextBox x:Name="txtExplicacion" MinHeight="40" AcceptsReturn="True"
+                                                 TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                                 Background="Transparent" BorderThickness="0"
+                                                 Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                    </Border>
+
+                                    <TextBlock Text="Opciones (marca la correcta)" FontSize="11" FontWeight="Bold"
+                                               Foreground="#6B5A87" Margin="0,0,0,8"/>
+
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <RadioButton x:Name="rbOp1" Grid.Column="0" GroupName="OpcionCorrecta"
+                                                     IsChecked="True" VerticalAlignment="Center" Margin="0,0,8,0"
+                                                     Foreground="White"/>
+                                        <Border Grid.Column="1" Background="#0E1330" CornerRadius="10"
+                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
+                                            <TextBox x:Name="txtOp1" Height="38" VerticalContentAlignment="Center"
+                                                     Background="Transparent" BorderThickness="0"
+                                                     Foreground="White" CaretBrush="#00FF87" FontSize="13"/>
+                                        </Border>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <RadioButton x:Name="rbOp2" Grid.Column="0" GroupName="OpcionCorrecta"
+                                                     VerticalAlignment="Center" Margin="0,0,8,0" Foreground="White"/>
+                                        <Border Grid.Column="1" Background="#0E1330" CornerRadius="10"
+                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
+                                            <TextBox x:Name="txtOp2" Height="38" VerticalContentAlignment="Center"
+                                                     Background="Transparent" BorderThickness="0"
+                                                     Foreground="White" CaretBrush="#00FF87" FontSize="13"/>
+                                        </Border>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,8">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <RadioButton x:Name="rbOp3" Grid.Column="0" GroupName="OpcionCorrecta"
+                                                     VerticalAlignment="Center" Margin="0,0,8,0" Foreground="White"/>
+                                        <Border Grid.Column="1" Background="#0E1330" CornerRadius="10"
+                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
+                                            <TextBox x:Name="txtOp3" Height="38" VerticalContentAlignment="Center"
+                                                     Background="Transparent" BorderThickness="0"
+                                                     Foreground="White" CaretBrush="#00FF87" FontSize="13"/>
+                                        </Border>
+                                    </Grid>
+                                    <Grid Margin="0,0,0,14">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="Auto"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <RadioButton x:Name="rbOp4" Grid.Column="0" GroupName="OpcionCorrecta"
+                                                     VerticalAlignment="Center" Margin="0,0,8,0" Foreground="White"/>
+                                        <Border Grid.Column="1" Background="#0E1330" CornerRadius="10"
+                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
+                                            <TextBox x:Name="txtOp4" Height="38" VerticalContentAlignment="Center"
+                                                     Background="Transparent" BorderThickness="0"
+                                                     Foreground="White" CaretBrush="#00FF87" FontSize="13"/>
+                                        </Border>
+                                    </Grid>
+
+                                    <Button x:Name="btnCrearPregunta" Content="＋  Crear pregunta"
+                                            Style="{StaticResource BtnVerde}" Click="CrearPregunta_Click"/>
+                                    <TextBlock x:Name="lblPreguntaEstado" Text="" FontSize="12"
+                                               Foreground="#4A5578" TextWrapping="Wrap" Margin="0,8,0,0"/>
+
+                                    <Border Height="1" Background="#22284A" Margin="0,16,0,16"/>
+                                    <TextBlock Text="PREGUNTAS DEL TEMA" FontSize="12" FontWeight="Bold"
+                                               Foreground="#00FF87" Margin="0,0,0,8"/>
+                                    <Border Background="#0E1330" CornerRadius="12" Padding="6">
+                                        <ItemsControl x:Name="listaPreguntas"/>
+                                    </Border>
+                                    <TextBlock x:Name="lblPreguntasEstado" Text="" FontSize="12"
+                                               Foreground="#4A5578" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+                            </ScrollViewer>
+                            </Border>
+                            </TabItem>
+
+                            <TabItem Header="Actividades">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel x:Name="panelActividades" Visibility="Collapsed" Margin="0,4,0,0">
+                        <TextBlock Text="Crear, publicar y gestionar actividades." FontSize="11"
+                                   Foreground="#6B5A87" Margin="0,0,0,12"/>
+
+                        <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
+                            <StackPanel>
+                                <TextBlock Text="CREAR ACTIVIDAD (nace en borrador)" FontSize="11" FontWeight="Bold"
+                                           Foreground="#6B5A87" Margin="0,0,0,12"/>
+
+                                <TextBlock Text="Título" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                        BorderThickness="1" Padding="12,0" Margin="0,0,0,10">
+                                    <TextBox x:Name="txtActTitulo" Height="40" VerticalContentAlignment="Center"
+                                             Background="Transparent" BorderThickness="0"
+                                             Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                </Border>
+
+                                <TextBlock Text="Descripción (opcional)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                        BorderThickness="1" Padding="10,6" Margin="0,0,0,10">
+                                    <TextBox x:Name="txtActDescripcion" MinHeight="44" AcceptsReturn="True"
+                                             TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                             Background="Transparent" BorderThickness="0"
+                                             Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                </Border>
+
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                        <TextBlock Text="Materia" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                        <ComboBox x:Name="cmbActMateria" Style="{StaticResource ComboOscuro}"
+                                                  ItemContainerStyle="{StaticResource ComboItemOscuro}"
+                                                  SelectionChanged="ActMateria_Changed"/>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                        <TextBlock Text="Tema" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                        <ComboBox x:Name="cmbActTema" Style="{StaticResource ComboOscuro}"
+                                                  ItemContainerStyle="{StaticResource ComboItemOscuro}"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Margin="0,0,0,10">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                        <TextBlock Text="Modo de dificultad" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                        <ComboBox x:Name="cmbActModo" SelectedIndex="0"
+                                                  Style="{StaticResource ComboOscuro}"
+                                                  ItemContainerStyle="{StaticResource ComboItemOscuro}">
+                                            <ComboBoxItem>MANUAL</ComboBoxItem>
+                                            <ComboBoxItem>ADAPTATIVA</ComboBoxItem>
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                        <TextBlock Text="Tipo actividad (id)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                        <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                                BorderThickness="1" Padding="12,0">
+                                            <TextBox x:Name="txtActTipoId" Text="1" Height="42" VerticalContentAlignment="Center"
+                                                     Background="Transparent" BorderThickness="0"
+                                                     Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                        </Border>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                        <TextBlock Text="Nivel inicial (id)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                        <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                                BorderThickness="1" Padding="12,0">
+                                            <TextBox x:Name="txtActNivelId" Text="1" Height="42" VerticalContentAlignment="Center"
+                                                     Background="Transparent" BorderThickness="0"
+                                                     Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                        </Border>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Bottom">
+                                        <CheckBox x:Name="chkRecuperacion" Content="Recuperación activa"
+                                                  Foreground="White" FontSize="13" Margin="2,0,0,6"/>
+                                        <CheckBox x:Name="chkRecompensas" Content="Recompensas activas" IsChecked="True"
+                                                  Foreground="White" FontSize="13" Margin="2,0,0,0"/>
+                                    </StackPanel>
+                                </Grid>
+
+                                <Button x:Name="btnCrearActividad" Content="＋  Crear actividad"
+                                        Style="{StaticResource BtnVerde}" Click="CrearActividad_Click"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Background="#111633" CornerRadius="14" Padding="6">
+                            <ItemsControl x:Name="listaActividades"/>
+                        </Border>
+                        <TextBlock x:Name="lblActividadesEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
+
+                        <!-- Asignar preguntas del banco a la actividad elegida -->
+                        <StackPanel x:Name="panelAsignarPreguntas" Visibility="Collapsed" Margin="0,14,0,0">
+                            <Border Height="1" Background="#22284A" Margin="0,0,0,14"/>
+                            <TextBlock x:Name="lblAsignarTitulo" Text="Asignar preguntas" FontSize="13"
+                                       FontWeight="Bold" Foreground="#00FF87" TextWrapping="Wrap" Margin="0,0,0,4"/>
+                            <TextBlock Text="Preguntas del tema de la actividad. Pulsá «Agregar» para añadirlas."
+                                       FontSize="11" Foreground="#6B5A87" Margin="0,0,0,10" TextWrapping="Wrap"/>
+                            <Border Background="#0E1330" CornerRadius="12" Padding="6">
+                                <ItemsControl x:Name="listaBancoPreguntas"/>
+                            </Border>
+                            <TextBlock x:Name="lblAsignarEstado" Text="" FontSize="12"
+                                       Foreground="#4A5578" TextWrapping="Wrap" Margin="0,8,0,0"/>
+
+                            <!-- Estado y publicación de la actividad -->
+                            <Border Height="1" Background="#22284A" Margin="0,16,0,14"/>
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                <TextBlock Text="Estado:" FontSize="12" Foreground="#8891B0"
+                                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <Border x:Name="brdEstadoActual" CornerRadius="6" Background="#2A3358"
+                                        Padding="10,3" VerticalAlignment="Center" Margin="0,0,12,0">
+                                    <TextBlock x:Name="lblEstadoActual" Text="—" FontSize="11" FontWeight="Bold"
+                                               Foreground="#8891B0"/>
+                                </Border>
+                                <Button x:Name="btnEstadoPublicar" Content="Publicar actividad"
+                                        Style="{StaticResource BtnAccion}" Background="#1E7A4D"
+                                        Click="EstadoPublicar_Click"/>
+                                <Button x:Name="btnEstadoCerrar" Content="Cerrar actividad"
+                                        Style="{StaticResource BtnAccion}" Background="#7A3B1E"
+                                        Click="EstadoCerrar_Click"/>
+                            </StackPanel>
+
+                            <TextBlock Text="PUBLICAR A UNA SECCIÓN" FontSize="12" FontWeight="Bold"
+                                       Foreground="#00FF87" Margin="0,0,0,8"/>
+                            <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
+                                <StackPanel>
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                            <TextBlock Text="Sección" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                            <ComboBox x:Name="cmbPubSeccion" Style="{StaticResource ComboOscuro}"
+                                                      ItemContainerStyle="{StaticResource ComboItemOscuro}"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                            <TextBlock Text="Período académico" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                            <ComboBox x:Name="cmbPubPeriodo" Style="{StaticResource ComboOscuro}"
+                                                      ItemContainerStyle="{StaticResource ComboItemOscuro}"/>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                            <TextBlock Text="Apertura (yyyy-MM-dd HH:mm)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                                    BorderThickness="1" Padding="12,0">
+                                                <TextBox x:Name="txtPubApertura" Height="40" VerticalContentAlignment="Center"
+                                                         Background="Transparent" BorderThickness="0"
+                                                         Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                            <TextBlock Text="Cierre (yyyy-MM-dd HH:mm)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                                    BorderThickness="1" Padding="12,0">
+                                                <TextBox x:Name="txtPubCierre" Height="40" VerticalContentAlignment="Center"
+                                                         Background="Transparent" BorderThickness="0"
+                                                         Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                            </Border>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Grid Margin="0,0,0,12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                            <TextBlock Text="Máx. intentos" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                                    BorderThickness="1" Padding="12,0">
+                                                <TextBox x:Name="txtPubIntentos" Text="1" Height="40" VerticalContentAlignment="Center"
+                                                         Background="Transparent" BorderThickness="0"
+                                                         Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                            <TextBlock Text="Duración (min, opcional)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                                    BorderThickness="1" Padding="12,0">
+                                                <TextBox x:Name="txtPubDuracion" Height="40" VerticalContentAlignment="Center"
+                                                         Background="Transparent" BorderThickness="0"
+                                                         Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                            </Border>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <Button x:Name="btnPublicarSeccion" Content="＋  Publicar a la sección"
+                                            Style="{StaticResource BtnVerde}" Click="PublicarSeccion_Click"/>
+                                </StackPanel>
+                            </Border>
+
+                            <TextBlock Text="PUBLICADA EN" FontSize="11" FontWeight="Bold"
+                                       Foreground="#6B5A87" Margin="0,4,0,8"/>
+                            <Border Background="#0E1330" CornerRadius="12" Padding="6">
+                                <ItemsControl x:Name="listaPubSecciones"/>
+                            </Border>
+                            <TextBlock x:Name="lblPublicarEstado" Text="" FontSize="12"
+                                       Foreground="#4A5578" TextWrapping="Wrap" Margin="0,8,0,0"/>
+                        </StackPanel>
+                    </StackPanel>
+                            </ScrollViewer>
+                            </TabItem>
+                        </TabControl>
+                    </Grid>
+                    </StackPanel>
+                    </ScrollViewer>
+                    <!-- ===== FIN VISTA GENÉRICA ===== -->
+
+                    <!-- ===== VISTA ADMIN: pestañas por área ===== -->
+                    <TabControl x:Name="panelAdmin" Visibility="Collapsed" Height="580"
+                                Style="{StaticResource TabsOscuro}"
+                                ItemContainerStyle="{StaticResource TabItemOscuro}">
+                            <TabItem Header="Materias">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="4,12,10,0">
+                            <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
+                                <StackPanel>
+                                    <TextBlock Text="CREAR MATERIA" FontSize="11" FontWeight="Bold"
+                                               Foreground="#6B5A87" Margin="0,0,0,10"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0" Background="#0E1330" CornerRadius="10"
+                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
+                                            <TextBox x:Name="txtNuevaMateria" Height="42"
+                                                     VerticalContentAlignment="Center"
+                                                     Background="Transparent" BorderThickness="0"
+                                                     Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                        </Border>
+                                        <Button x:Name="btnCrear" Grid.Column="1" Content="＋  Crear"
+                                                MinWidth="120" Margin="12,0,0,0"
+                                                Style="{StaticResource BtnVerde}" Click="CrearMateria_Click"/>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                    BorderThickness="1" Padding="12,0" Margin="0,0,0,8">
+                                <TextBox x:Name="txtBuscarMateria" Height="38" VerticalContentAlignment="Center"
+                                         Background="Transparent" BorderThickness="0"
+                                         Foreground="White" CaretBrush="#00FF87" FontSize="13"
+                                         TextChanged="BuscarMateria_Changed"/>
+                            </Border>
+                            <Border Background="#111633" CornerRadius="14" Padding="6">
+                                <ItemsControl x:Name="listaMaterias"/>
+                            </Border>
+                            <TextBlock x:Name="lblMateriasEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
+                            </StackPanel>
+                            </ScrollViewer>
+                            </TabItem>
+
+                            <TabItem Header="Usuarios">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="4,12,10,0">
+                            <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
+                                <StackPanel>
+                                    <TextBlock Text="CREAR USUARIO" FontSize="11" FontWeight="Bold"
+                                               Foreground="#6B5A87" Margin="0,0,0,12"/>
+
+                                    <TextBlock Text="Nombre completo" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                    <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                            BorderThickness="1" Padding="12,0" Margin="0,0,0,10">
+                                        <TextBox x:Name="txtNombreCompleto" Height="40" VerticalContentAlignment="Center"
+                                                 Background="Transparent" BorderThickness="0"
+                                                 Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                    </Border>
+
+                                    <TextBlock Text="Usuario o correo" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                    <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                            BorderThickness="1" Padding="12,0" Margin="0,0,0,10">
+                                        <TextBox x:Name="txtCorreoUsuario" Height="40" VerticalContentAlignment="Center"
+                                                 Background="Transparent" BorderThickness="0"
+                                                 Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                    </Border>
+
+                                    <TextBlock Text="Contraseña" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                    <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                            BorderThickness="1" Padding="12,0" Margin="0,0,0,10">
+                                        <PasswordBox x:Name="pwdClave" Height="40" VerticalContentAlignment="Center"
+                                                     Background="Transparent" BorderThickness="0"
+                                                     Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                    </Border>
+
+                                    <TextBlock Text="Rol" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                    <ComboBox x:Name="cmbRol" SelectedIndex="2" Margin="0,0,0,14"
+                                              Style="{StaticResource ComboOscuro}"
+                                              ItemContainerStyle="{StaticResource ComboItemOscuro}">
+                                        <ComboBoxItem>ADMIN</ComboBoxItem>
+                                        <ComboBoxItem>DOCENTE</ComboBoxItem>
+                                        <ComboBoxItem>ESTUDIANTE</ComboBoxItem>
+                                    </ComboBox>
+
+                                    <Button x:Name="btnCrearUsuario" Content="＋  Crear usuario"
+                                            Style="{StaticResource BtnVerde}" Click="CrearUsuario_Click"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                    BorderThickness="1" Padding="12,0" Margin="0,0,0,8">
+                                <TextBox x:Name="txtBuscarUsuario" Height="38" VerticalContentAlignment="Center"
+                                         Background="Transparent" BorderThickness="0"
+                                         Foreground="White" CaretBrush="#00FF87" FontSize="13"
+                                         TextChanged="BuscarUsuario_Changed"/>
+                            </Border>
+                            <Border Background="#111633" CornerRadius="14" Padding="6">
+                                <ItemsControl x:Name="listaUsuarios"/>
+                            </Border>
+                            <TextBlock x:Name="lblUsuariosEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
+                            </StackPanel>
+                            </ScrollViewer>
+                            </TabItem>
+
+                            <TabItem Header="Grados y Secciones">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="4,12,10,0">
+                            <TextBlock Text="◆  GRADOS" FontSize="13" FontWeight="Bold"
+                                       Foreground="#00FF87" Margin="0,0,0,12"/>
+                            <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
+                                <StackPanel>
+                                    <TextBlock Text="CREAR GRADO" FontSize="11" FontWeight="Bold"
+                                               Foreground="#6B5A87" Margin="0,0,0,10"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="90"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <Border Grid.Column="0" Background="#0E1330" CornerRadius="10"
+                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
+                                            <TextBox x:Name="txtNuevoGrado" Height="42" VerticalContentAlignment="Center"
+                                                     Background="Transparent" BorderThickness="0"
+                                                     Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                        </Border>
+                                        <Border Grid.Column="1" Background="#0E1330" CornerRadius="10" Margin="10,0,0,0"
+                                                BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
+                                            <TextBox x:Name="txtOrdenGrado" Text="1" Height="42" VerticalContentAlignment="Center"
+                                                     Background="Transparent" BorderThickness="0"
+                                                     Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                        </Border>
+                                        <Button x:Name="btnCrearGrado" Grid.Column="2" Content="＋  Crear"
+                                                MinWidth="110" Margin="10,0,0,0"
+                                                Style="{StaticResource BtnVerde}" Click="CrearGrado_Click"/>
+                                    </Grid>
+                                    <TextBlock Text="Nombre y orden (número). El botón Secciones abre las secciones de ese grado."
+                                               FontSize="11" Foreground="#6B5A87" Margin="0,10,0,0"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Background="#111633" CornerRadius="14" Padding="6">
+                                <ItemsControl x:Name="listaGrados"/>
+                            </Border>
+                            <TextBlock x:Name="lblGradosEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
+
+                            <Border Height="1" Background="#22284A" Margin="0,24,0,24"/>
+
+                            <!-- Sección SECCIONES -->
+                            <TextBlock Text="◆  SECCIONES" FontSize="13" FontWeight="Bold"
+                                       Foreground="#00FF87" Margin="0,0,0,12"/>
+                            <TextBlock x:Name="lblSeccionesInfo" Text="Elige un grado (botón «Secciones») para gestionar sus secciones."
+                                       FontSize="12" Foreground="#8891B0" Margin="0,0,0,12" TextWrapping="Wrap"/>
+
+                            <StackPanel x:Name="panelSecciones" Visibility="Collapsed">
+                                <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
+                                    <StackPanel>
+                                        <TextBlock x:Name="lblSeccionesTitulo" Text="CREAR SECCIÓN" FontSize="11"
+                                                   FontWeight="Bold" Foreground="#6B5A87" Margin="0,0,0,10"/>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <Border Grid.Column="0" Background="#0E1330" CornerRadius="10"
+                                                    BorderBrush="#3D2A54" BorderThickness="1" Padding="12,0">
+                                                <TextBox x:Name="txtNuevaSeccion" Height="42" VerticalContentAlignment="Center"
+                                                         Background="Transparent" BorderThickness="0"
+                                                         Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                            </Border>
+                                            <Button x:Name="btnCrearSeccion" Grid.Column="1" Content="＋  Crear"
+                                                    MinWidth="110" Margin="10,0,0,0"
+                                                    Style="{StaticResource BtnVerde}" Click="CrearSeccion_Click"/>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                                <Border Background="#111633" CornerRadius="14" Padding="6">
+                                    <ItemsControl x:Name="listaSecciones"/>
+                                </Border>
+                                <TextBlock x:Name="lblSeccionesEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
+                            </StackPanel>
+                            </StackPanel>
+                            </ScrollViewer>
+                            </TabItem>
+
+                            <TabItem Header="Períodos">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="4,12,10,0">
+                            <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
+                                <StackPanel>
+                                    <TextBlock Text="CREAR PERÍODO" FontSize="11" FontWeight="Bold"
+                                               Foreground="#6B5A87" Margin="0,0,0,10"/>
+
+                                    <TextBlock Text="Nombre" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                    <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                            BorderThickness="1" Padding="12,0" Margin="0,0,0,10">
+                                        <TextBox x:Name="txtNombrePeriodo" Height="40" VerticalContentAlignment="Center"
+                                                 Background="Transparent" BorderThickness="0"
+                                                 Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                    </Border>
+
+                                    <Grid Margin="0,0,0,10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="*"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0" Margin="0,0,6,0">
+                                            <TextBlock Text="Fecha inicio (yyyy-MM-dd)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                                    BorderThickness="1" Padding="12,0">
+                                                <TextBox x:Name="txtFechaInicio" Height="40" VerticalContentAlignment="Center"
+                                                         Background="Transparent" BorderThickness="0"
+                                                         Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                            </Border>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Margin="6,0,0,0">
+                                            <TextBlock Text="Fecha fin (yyyy-MM-dd)" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                            <Border Background="#0E1330" CornerRadius="10" BorderBrush="#3D2A54"
+                                                    BorderThickness="1" Padding="12,0">
+                                                <TextBox x:Name="txtFechaFin" Height="40" VerticalContentAlignment="Center"
+                                                         Background="Transparent" BorderThickness="0"
+                                                         Foreground="White" CaretBrush="#00FF87" FontSize="14"/>
+                                            </Border>
+                                        </StackPanel>
+                                    </Grid>
+
+                                    <CheckBox x:Name="chkActivoPeriodo" Content="Activo" IsChecked="True"
+                                              Foreground="White" FontSize="13" Margin="2,2,0,12"/>
+
+                                    <Button x:Name="btnCrearPeriodo" Content="＋  Crear período"
+                                            Style="{StaticResource BtnVerde}" Click="CrearPeriodo_Click"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Background="#111633" CornerRadius="14" Padding="6">
+                                <ItemsControl x:Name="listaPeriodos"/>
+                            </Border>
+                            <TextBlock x:Name="lblPeriodosEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
+                            </StackPanel>
+                            </ScrollViewer>
+                            </TabItem>
+
+                            <TabItem Header="Asignaciones">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                            <StackPanel Margin="4,12,10,0">
+                            <Border Background="#151B3B" CornerRadius="14" Padding="16" Margin="0,0,0,12">
+                                <StackPanel>
+                                    <TextBlock Text="ASIGNAR DOCENTE A CLASE" FontSize="11" FontWeight="Bold"
+                                               Foreground="#6B5A87" Margin="0,0,0,12"/>
+
+                                    <TextBlock Text="Docente" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                    <ComboBox x:Name="cmbAsigDocente" Margin="0,0,0,10"
+                                              Style="{StaticResource ComboOscuro}"
+                                              ItemContainerStyle="{StaticResource ComboItemOscuro}"/>
+
+                                    <TextBlock Text="Materia" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                    <ComboBox x:Name="cmbAsigMateria" Margin="0,0,0,10"
+                                              Style="{StaticResource ComboOscuro}"
+                                              ItemContainerStyle="{StaticResource ComboItemOscuro}"/>
+
+                                    <TextBlock Text="Sección" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                    <ComboBox x:Name="cmbAsigSeccion" Margin="0,0,0,10"
+                                              Style="{StaticResource ComboOscuro}"
+                                              ItemContainerStyle="{StaticResource ComboItemOscuro}"/>
+
+                                    <TextBlock Text="Período académico" FontSize="11" Foreground="#8891B0" Margin="0,0,0,4"/>
+                                    <ComboBox x:Name="cmbAsigPeriodo" Margin="0,0,0,14"
+                                              Style="{StaticResource ComboOscuro}"
+                                              ItemContainerStyle="{StaticResource ComboItemOscuro}"/>
+
+                                    <Button x:Name="btnCrearAsignacion" Content="＋  Asignar"
+                                            Style="{StaticResource BtnVerde}" Click="CrearAsignacion_Click"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Background="#111633" CornerRadius="14" Padding="6">
+                                <ItemsControl x:Name="listaAsignaciones"/>
+                            </Border>
+                            <TextBlock x:Name="lblAsignacionesEstado" Text="" FontSize="12" Foreground="#4A5578" Margin="0,8,0,0"/>
+                            </StackPanel>
+                            </ScrollViewer>
+                            </TabItem>
+                        </TabControl>
+                    <!-- ===== FIN VISTA ADMIN ===== -->
+                </StackPanel>
+            </Grid>
+        </Grid>
+    </Border>
+</Window>
