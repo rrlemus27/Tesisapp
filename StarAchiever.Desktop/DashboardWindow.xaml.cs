@@ -35,11 +35,19 @@ public partial class DashboardWindow : Window
     // valor al id real del estado aprobado si el botón «Aprobar» da error.
     private const int EstadoAprobadaId = 2;
 
-    // La nueva API no tiene un endpoint de ADMIN para asignar docentes a materias/secciones
-    // (api/docente/clases solo sirve para que un DOCENTE vea sus propias clases). Mientras no
-    // exista, la pestaña «Asignaciones» queda deshabilitada y no se llama a la API desde ahí.
-    // Si la API agrega ese endpoint, basta con poner esto en true (y revisar la ruta).
-    private static readonly bool AsignacionesDisponibles = false;
+    // La pestaña «Asignaciones» usa api/admin/asignaciones-docente y api/admin/estudiantes-seccion.
+    // Si hiciera falta ocultarla de nuevo, poner esto en false muestra la nota de «no disponible»
+    // y deja de llamar a esos endpoints.
+    private static readonly bool AsignacionesDisponibles = true;
+
+    // Mapas id -> nombre para mostrar las asignaciones aunque la API solo devuelva ids.
+    private readonly Dictionary<int, string> _nombreUsuario = new();
+    private readonly Dictionary<int, string> _nombreMateria = new();
+    private readonly Dictionary<int, string> _nombrePeriodo = new();
+    // Lista de estudiantes con su sección, para filtrar en vivo sin re-llamar a la API.
+    private JArray? _estudiantesData;
+    // Evita lanzar dos cargas de la pestaña Asignaciones a la vez.
+    private bool _cargandoAsignaciones;
 
     // Roles del sistema: la posición + 1 es el rolId (ADMIN=1, DOCENTE=2, ESTUDIANTE=3).
     private static readonly string[] Roles = { "ADMIN", "DOCENTE", "ESTUDIANTE" };
@@ -100,12 +108,10 @@ public partial class DashboardWindow : Window
                 await RecargarUsuarios();
                 await RecargarGrados();
                 await RecargarPeriodos();
-                if (AsignacionesDisponibles)
-                {
-                    await CargarCombosAsignacion();
-                    await RecargarAsignaciones();
-                }
-                Stat("Gestión", "Usuarios · Materias · Grados · Períodos");
+                // Asignaciones se carga al abrir su pestaña (ver PanelAdmin_SelectionChanged).
+                Stat("Gestión", AsignacionesDisponibles
+                    ? "Usuarios · Materias · Grados · Períodos · Asignaciones"
+                    : "Usuarios · Materias · Grados · Períodos");
                 Stat("Rol", "ADMIN");
                 break;
 
@@ -345,21 +351,61 @@ public partial class DashboardWindow : Window
     private static int RolIdDesdeNombre(string rol) =>
         Array.FindIndex(Roles, r => r.Equals(rol.Trim(), StringComparison.OrdinalIgnoreCase)) + 1;
 
-    // ===== ASIGNACIONES DOCENTE-CLASE =====
+    // ===== ASIGNACIONES (ADMIN): docente -> materia + sección, estudiante -> sección =====
 
-    // Llena los 4 combos (docentes, materias, secciones, períodos) desde la API.
-    private async System.Threading.Tasks.Task CargarCombosAsignacion()
+    // Al abrir la pestaña «Asignaciones» se recargan combos y listas, para que aparezcan los
+    // docentes, estudiantes, materias o secciones recién creados en las otras pestañas.
+    private async void PanelAdmin_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        var errores = new[]
+        // SelectionChanged también "sube" desde los combos y pestañas internas:
+        // solo nos interesa cuando cambia la pestaña principal del panel ADMIN.
+        if (!ReferenceEquals(e.OriginalSource, panelAdmin) || tabAsignaciones is null) return;
+        if (AsignacionesDisponibles && ReferenceEquals(panelAdmin.SelectedItem, tabAsignaciones))
+            await CargarPestanaAsignaciones();
+    }
+
+    private async System.Threading.Tasks.Task CargarPestanaAsignaciones()
+    {
+        if (_cargandoAsignaciones) return;
+        _cargandoAsignaciones = true;
+        try
         {
-            await LlenarComboAsync(cmbAsigDocente, Rutas.Usuarios, it =>
-                string.Equals(it["rol"]?.ToString(), "DOCENTE", StringComparison.OrdinalIgnoreCase)
-                    ? it["nombreCompleto"]?.ToString() : null),
-            await LlenarComboAsync(cmbAsigMateria, Rutas.Materias, it => it["nombre"]?.ToString()),
-            await LlenarComboAsync(cmbAsigSeccion, Rutas.Secciones, TextoSeccion),
-            await LlenarComboAsync(cmbAsigPeriodo, Rutas.PeriodosAcademicos, it => it["nombre"]?.ToString())
-        };
-        MostrarErroresCombos(lblAsignacionesEstado, errores);
+            var (errUsuarios, errMaterias, errSecciones, errPeriodos) = await CargarCombosAsignacion();
+            await RecargarAsignaciones();
+            await RecargarEstudiantesSeccion();
+            // Los errores de los combos se muestran después, para que la recarga de las listas no los tape.
+            MostrarErroresCombos(lblAsignacionesEstado, new[] { errUsuarios, errMaterias, errSecciones, errPeriodos });
+            MostrarErroresCombos(lblEstudiantesEstado, new[] { errUsuarios, errSecciones });
+        }
+        finally
+        {
+            _cargandoAsignaciones = false;
+        }
+    }
+
+    // Trae usuarios, materias, secciones y períodos (una vez cada uno), llena los combos de
+    // las dos asignaciones y los mapas id -> nombre. Devuelve el error de cada lista, si lo hubo.
+    private async System.Threading.Tasks.Task<(string? usuarios, string? materias, string? secciones, string? periodos)>
+        CargarCombosAsignacion()
+    {
+        var (usuarios, errUsuarios) = await ObtenerListaAsync(Rutas.Usuarios);
+        var (materias, errMaterias) = await ObtenerListaAsync(Rutas.Materias);
+        var (secciones, errSecciones) = await ObtenerListaAsync(Rutas.Secciones);
+        var (periodos, errPeriodos) = await ObtenerListaAsync(Rutas.PeriodosAcademicos);
+
+        LlenarCombo(cmbAsigDocente, usuarios, it => EsRol(it, "DOCENTE") ? NombreDeUsuario(it) : null);
+        LlenarCombo(cmbAsigMateria, materias, it => it["nombre"]?.ToString());
+        LlenarCombo(cmbAsigSeccion, secciones, TextoSeccion);
+        LlenarCombo(cmbAsigPeriodo, periodos, it => it["nombre"]?.ToString());
+        LlenarCombo(cmbEstEstudiante, usuarios, it => EsRol(it, "ESTUDIANTE") ? NombreDeUsuario(it) : null);
+        LlenarCombo(cmbEstSeccion, secciones, TextoSeccion);
+
+        Mapear(_nombreUsuario, usuarios, NombreDeUsuario);
+        Mapear(_nombreMateria, materias, it => it["nombre"]?.ToString());
+        Mapear(_seccionesNombre, secciones, TextoSeccion);
+        Mapear(_nombrePeriodo, periodos, it => it["nombre"]?.ToString());
+
+        return (errUsuarios, errMaterias, errSecciones, errPeriodos);
     }
 
     // "A · Primer grado": nombre de la sección con su grado, para los combos.
@@ -370,35 +416,120 @@ public partial class DashboardWindow : Window
         return string.IsNullOrWhiteSpace(g) ? s : $"{s} · {g}";
     }
 
-    // GET a 'ruta' y llena el combo con ComboBoxItem(Content=texto, Tag=id).
-    // 'texto' devuelve null para saltarse ese elemento (p. ej. usuarios que no son DOCENTE).
-    // Devuelve null si todo fue bien, o el error real (código + mensaje) si la API falló.
-    private async System.Threading.Tasks.Task<string?> LlenarComboAsync(ComboBox combo, string ruta, Func<JToken, string?> texto)
+    private static string NombreDeUsuario(JToken it) =>
+        Texto(it, "nombreCompleto", "nombre", "correoOUsuario") ?? $"Usuario #{Entero(it, "id") ?? 0}";
+
+    // ¿El usuario de la lista tiene este rol? Mira "rol" (texto) y, si no viene, "rolId".
+    private static bool EsRol(JToken usuario, string rol)
     {
-        combo.Items.Clear();
+        var texto = Texto(usuario, "rol");
+        return texto != null
+            ? texto.Trim().Equals(rol, StringComparison.OrdinalIgnoreCase)
+            : Entero(usuario, "rolId") == RolIdDesdeNombre(rol);
+    }
+
+    // GET a una lista de la API. Devuelve (datos, null) o (null, error real con código + mensaje).
+    private static async System.Threading.Tasks.Task<(JArray? datos, string? error)> ObtenerListaAsync(string ruta)
+    {
         try
         {
             var res = await ApiService.GetResultAsync(ruta);
             if (!res.Exito)
             {
                 var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                return $"✗ Error {res.Codigo} al cargar /{ruta}: {detalle}";
+                return (null, $"✗ Error {res.Codigo} al cargar /{ruta}: {detalle}");
             }
-            var array = JArray.Parse(res.Contenido);
-            foreach (var item in array)
-            {
-                var t = texto(item);
-                if (t is null) continue;
-                int id = item["id"]?.Value<int>() ?? 0;
-                combo.Items.Add(new ComboBoxItem { Content = t, Tag = id });
-            }
-            if (combo.Items.Count > 0) combo.SelectedIndex = 0;
-            return null;
+            return (JArray.Parse(res.Contenido), null);
         }
         catch (Exception ex)
         {
-            return $"✗ No se pudo cargar /{ruta}: {ex.Message}";
+            return (null, $"✗ No se pudo cargar /{ruta}: {ex.Message}");
         }
+    }
+
+    // GET a 'ruta' y llena el combo con ComboBoxItem(Content=texto, Tag=id).
+    // 'texto' devuelve null para saltarse ese elemento (p. ej. usuarios que no son DOCENTE).
+    // Devuelve null si todo fue bien, o el error real (código + mensaje) si la API falló.
+    private async System.Threading.Tasks.Task<string?> LlenarComboAsync(ComboBox combo, string ruta, Func<JToken, string?> texto)
+    {
+        var (datos, error) = await ObtenerListaAsync(ruta);
+        LlenarCombo(combo, datos, texto);
+        return error;
+    }
+
+    // Llena el combo con los datos (o lo deja vacío si no hay). Si el elemento que estaba
+    // elegido sigue en la lista, lo vuelve a elegir; si no, elige el primero.
+    private static void LlenarCombo(ComboBox combo, JArray? datos, Func<JToken, string?> texto)
+    {
+        int elegido = TagCombo(combo);
+        combo.Items.Clear();
+        if (datos is null) return;
+        foreach (var item in datos)
+        {
+            var t = texto(item);
+            if (t is null) continue;
+            int id = item["id"]?.Value<int>() ?? 0;
+            combo.Items.Add(new ComboBoxItem { Content = t, Tag = id });
+        }
+        if (!(elegido > 0 && SeleccionarEnCombo(combo, elegido)) && combo.Items.Count > 0)
+            combo.SelectedIndex = 0;
+    }
+
+    // Elige en el combo el elemento con ese id (Tag). Devuelve false si no está.
+    private static bool SeleccionarEnCombo(ComboBox combo, int id)
+    {
+        var item = combo.Items.OfType<ComboBoxItem>().FirstOrDefault(i => i.Tag is int t && t == id);
+        if (item != null) combo.SelectedItem = item;
+        return item != null;
+    }
+
+    // Rellena un mapa id -> texto con una lista. Si la lista no se pudo cargar, deja el mapa como estaba.
+    private static void Mapear(Dictionary<int, string> mapa, JArray? datos, Func<JToken, string?> texto)
+    {
+        if (datos is null) return;
+        mapa.Clear();
+        foreach (var item in datos)
+        {
+            var id = Entero(item, "id");
+            var t = texto(item);
+            if (id.HasValue && !string.IsNullOrWhiteSpace(t)) mapa[id.Value] = t;
+        }
+    }
+
+    // Nombre de un id según el mapa; si no está, muestra el id.
+    private static string Nombre(Dictionary<int, string> mapa, int? id) =>
+        id is null ? "-" : mapa.TryGetValue(id.Value, out var n) ? n : $"#{id}";
+
+    // Primer valor de texto entre varios nombres de campo posibles (sin distinguir mayúsculas).
+    // Si el campo es un objeto (p. ej. "docente": { "nombreCompleto": ... }), usa su nombre.
+    // Los números se ignoran: en ese caso el nombre se busca por id en los mapas.
+    private static string? Texto(JToken? item, params string[] campos)
+    {
+        if (item is not JObject obj) return null;
+        foreach (var campo in campos)
+        {
+            var v = obj.GetValue(campo, StringComparison.OrdinalIgnoreCase);
+            if (v is JObject sub)
+                v = sub.GetValue("nombreCompleto", StringComparison.OrdinalIgnoreCase)
+                    ?? sub.GetValue("nombre", StringComparison.OrdinalIgnoreCase);
+            if (v?.Type == JTokenType.String && !string.IsNullOrWhiteSpace(v.ToString()))
+                return v.ToString();
+        }
+        return null;
+    }
+
+    // Primer número entero entre varios nombres de campo posibles (o el "id" si el campo es un objeto).
+    private static int? Entero(JToken? item, params string[] campos)
+    {
+        if (item is not JObject obj) return null;
+        foreach (var campo in campos)
+        {
+            var v = obj.GetValue(campo, StringComparison.OrdinalIgnoreCase);
+            if (v is JObject sub) v = sub.GetValue("id", StringComparison.OrdinalIgnoreCase);
+            if (v?.Type == JTokenType.Integer) return v.Value<int>();
+            if (v?.Type == JTokenType.String && int.TryParse(v.ToString(), out var n)) return n;
+        }
+        return null;
     }
 
     // Si algún combo no se pudo llenar, antepone el/los errores al texto de la etiqueta de estado.
@@ -413,36 +544,44 @@ public partial class DashboardWindow : Window
     private static int TagCombo(ComboBox combo) =>
         (combo.SelectedItem as ComboBoxItem)?.Tag is int id ? id : 0;
 
+    // ----- Docente -> materia + sección + período: api/admin/asignaciones-docente -----
+
     private async System.Threading.Tasks.Task RecargarAsignaciones()
     {
-        try
+        var (datos, error) = await ObtenerListaAsync(Rutas.AsignacionesDocente);
+        listaAsignaciones.Items.Clear();
+        if (datos is null)
         {
-            var res = await ApiService.GetResultAsync("docenteclases");
-            if (!res.Exito)
-            {
-                listaAsignaciones.Items.Clear();
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblAsignacionesEstado.Text = $"✗ Error {res.Codigo} al listar asignaciones: {detalle}";
-                return;
-            }
-            var array = JArray.Parse(res.Contenido);
-            listaAsignaciones.Items.Clear();
-            int i = 1;
-            foreach (var item in array)
-            {
-                int id = item["id"]?.Value<int>() ?? 0;
-                var docente = item["docente"]?.ToString() ?? "-";
-                var materia = item["materia"]?.ToString() ?? "-";
-                var seccion = item["seccion"]?.ToString() ?? "-";
-                var periodo = item["periodo"]?.ToString() ?? "-";
-                listaAsignaciones.Items.Add(CrearFilaAsignacion(i++, id, docente, materia, seccion, periodo));
-            }
-            lblAsignacionesEstado.Text = $"✓ {array.Count} asignación(es).";
+            lblAsignacionesEstado.Text = error ?? "";
+            return;
         }
-        catch (Exception ex)
+
+        int i = 1;
+        foreach (var item in datos)
         {
-            lblAsignacionesEstado.Text = $"✗ No se pudieron cargar las asignaciones: {ex.Message}";
+            // Se aceptan nombres en el propio JSON o, si solo vienen ids, se buscan en los combos.
+            int id = Entero(item, "id", "asignacionId", "asignacionDocenteId") ?? 0;
+            var docente = Texto(item, "docente", "docenteNombre", "nombreDocente", "docenteNombreCompleto")
+                          ?? Nombre(_nombreUsuario, Entero(item, "docenteUsuarioId", "docenteId", "usuarioId"));
+            var materia = Texto(item, "materia", "materiaNombre", "nombreMateria")
+                          ?? Nombre(_nombreMateria, Entero(item, "materiaId"));
+            var seccion = TextoSeccionDe(item) ?? Nombre(_seccionesNombre, Entero(item, "seccionId"));
+            var periodo = Texto(item, "periodo", "periodoAcademico", "periodoNombre", "periodoAcademicoNombre")
+                          ?? Nombre(_nombrePeriodo, Entero(item, "periodoAcademicoId", "periodoId"));
+            listaAsignaciones.Items.Add(CrearFilaAsignacion(i++, id, docente, materia, seccion, periodo));
         }
+        lblAsignacionesEstado.Text = datos.Count == 0
+            ? "Todavía no hay docentes asignados."
+            : $"✓ {datos.Count} asignación(es).";
+    }
+
+    // Nombre de la sección (con su grado si viene) leído del JSON de una asignación; null si no viene.
+    private static string? TextoSeccionDe(JToken item)
+    {
+        var seccion = Texto(item, "seccion", "seccionNombre", "nombreSeccion");
+        if (seccion is null) return null;
+        var grado = Texto(item, "grado", "gradoNombre", "nombreGrado");
+        return string.IsNullOrWhiteSpace(grado) ? seccion : $"{seccion} · {grado}";
     }
 
     private async void CrearAsignacion_Click(object sender, RoutedEventArgs e)
@@ -461,13 +600,12 @@ public partial class DashboardWindow : Window
         btnCrearAsignacion.IsEnabled = false;
         try
         {
-            var res = await ApiService.PostAsync("docenteclases", new
+            var res = await ApiService.PostAsync(Rutas.AsignacionesDocente, new
             {
                 docenteUsuarioId = docenteId,
                 materiaId = materiaId,
                 seccionId = seccionId,
-                periodoAcademicoId = periodoId,
-                activa = true
+                periodoAcademicoId = periodoId
             });
 
             if (res.Exito)
@@ -497,7 +635,7 @@ public partial class DashboardWindow : Window
 
         try
         {
-            var res = await ApiService.DeleteAsync($"docenteclases/{id}");
+            var res = await ApiService.DeleteAsync($"{Rutas.AsignacionesDocente}/{id}");
             if (res.Exito)
             {
                 await RecargarAsignaciones();
@@ -522,8 +660,161 @@ public partial class DashboardWindow : Window
         var resumen = $"{docente} — {materia} / Sección {seccion} / {periodo}";
         var btnEliminar = Ui.Accion("🗑 Eliminar", Tono.Coral);
         btnEliminar.Click += (_, _) => EliminarAsignacion(id, resumen);
+        if (id <= 0)
+        {
+            // Sin id no hay a qué ruta mandar el DELETE.
+            btnEliminar.IsEnabled = false;
+            btnEliminar.ToolTip = "La API no devolvió el id de esta asignación.";
+        }
 
         return Ui.Fila(num, info, btnEliminar);
+    }
+
+    // ----- Estudiante -> sección: api/admin/estudiantes-seccion -----
+
+    // Trae todos los estudiantes con su sección (también los que no tienen) y los pinta.
+    private async System.Threading.Tasks.Task RecargarEstudiantesSeccion()
+    {
+        var (datos, error) = await ObtenerListaAsync(Rutas.EstudiantesSeccion);
+        _estudiantesData = datos;
+        if (datos is null)
+        {
+            listaEstudiantesSeccion.Items.Clear();
+            lblEstudiantesEstado.Text = error ?? "";
+            return;
+        }
+        RenderEstudiantesSeccion(txtBuscarEstudiante.Text);
+    }
+
+    // Pinta los estudiantes ya cargados, filtrando por nombre (en vivo, sin llamar a la API).
+    private void RenderEstudiantesSeccion(string filtro)
+    {
+        if (_estudiantesData is null) return;
+        filtro = (filtro ?? "").Trim();
+
+        listaEstudiantesSeccion.Items.Clear();
+        int i = 1, mostrados = 0, sinSeccion = 0;
+        foreach (var item in _estudiantesData)
+        {
+            int usuarioId = Entero(item, "usuarioId", "estudianteId", "id") ?? 0;
+            var nombre = Texto(item, "nombreCompleto", "estudiante", "estudianteNombre", "nombre")
+                         ?? Nombre(_nombreUsuario, usuarioId);
+            var correo = Texto(item, "correoOUsuario", "correo", "usuario");
+            int? seccionId = Entero(item, "seccionId", "seccion");
+            if (seccionId <= 0) seccionId = null; // 0 = sin sección
+            var seccion = TextoSeccionDe(item) ?? (seccionId.HasValue ? Nombre(_seccionesNombre, seccionId) : null);
+            if (seccion is null) sinSeccion++;
+
+            if (filtro.Length > 0 && !nombre.Contains(filtro, StringComparison.OrdinalIgnoreCase)) continue;
+            listaEstudiantesSeccion.Items.Add(CrearFilaEstudianteSeccion(i++, usuarioId, nombre, correo, seccionId, seccion));
+            mostrados++;
+        }
+
+        var resumen = $"{_estudiantesData.Count} estudiante(s) · {sinSeccion} sin sección";
+        lblEstudiantesEstado.Text = filtro.Length > 0
+            ? $"✓ {mostrados} de {resumen} (filtro: \"{filtro}\")."
+            : $"✓ {resumen}.";
+    }
+
+    private void BuscarEstudiante_Changed(object sender, TextChangedEventArgs e) =>
+        RenderEstudiantesSeccion(txtBuscarEstudiante.Text);
+
+    // Fila de estudiante: nombre + sección (o «Sin sección»), y botones Asignar/Cambiar y Quitar.
+    private Border CrearFilaEstudianteSeccion(int num, int usuarioId, string nombre, string? correo,
+        int? seccionId, string? seccion)
+    {
+        bool tieneSeccion = seccion != null;
+        var info = Ui.Info(nombre, correo,
+            tieneSeccion ? Ui.Pill(seccion!, Tono.Teal) : Ui.Pill("Sin sección", Tono.Amarillo));
+
+        // «Asignar» / «Cambiar» solo prepara el formulario; se confirma con el botón del formulario.
+        var btnPreparar = tieneSeccion
+            ? Ui.Accion("✎ Cambiar", Tono.Morado, "Elegir otra sección para este estudiante")
+            : Ui.Accion("＋ Asignar", Tono.Teal, "Asignar este estudiante a una sección");
+        btnPreparar.Click += (_, _) => PrepararAsignacionEstudiante(usuarioId, nombre, seccionId);
+
+        if (!tieneSeccion) return Ui.Fila(num, info, btnPreparar);
+
+        var btnQuitar = Ui.Accion("Quitar", Tono.Coral, "Quitar al estudiante de su sección");
+        btnQuitar.Click += (_, _) => QuitarEstudianteSeccion(usuarioId, nombre);
+        return Ui.Fila(num, info, btnPreparar, btnQuitar);
+    }
+
+    // Deja elegidos el estudiante (y su sección actual, si tiene) en el formulario.
+    private void PrepararAsignacionEstudiante(int usuarioId, string nombre, int? seccionId)
+    {
+        if (!SeleccionarEnCombo(cmbEstEstudiante, usuarioId))
+        {
+            lblEstudiantesEstado.Text = $"✗ \"{nombre}\" no aparece entre los usuarios con rol ESTUDIANTE.";
+            return;
+        }
+        if (seccionId.HasValue) SeleccionarEnCombo(cmbEstSeccion, seccionId.Value);
+        cmbEstSeccion.Focus();
+    }
+
+    // POST api/admin/estudiantes-seccion con { usuarioId, seccionId }: asigna o reasigna.
+    private async void AsignarEstudiante_Click(object sender, RoutedEventArgs e)
+    {
+        int usuarioId = TagCombo(cmbEstEstudiante);
+        int seccionId = TagCombo(cmbEstSeccion);
+        if (usuarioId <= 0 || seccionId <= 0)
+        {
+            lblEstudiantesEstado.Text = "✗ Elige estudiante y sección.";
+            return;
+        }
+
+        btnAsignarEstudiante.IsEnabled = false;
+        try
+        {
+            var res = await ApiService.PostAsync(Rutas.EstudiantesSeccion,
+                new { usuarioId = usuarioId, seccionId = seccionId });
+
+            if (res.Exito)
+            {
+                await RecargarEstudiantesSeccion();
+                lblEstudiantesEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Estudiante asignado a la sección." : res.Mensaje)}";
+            }
+            else
+            {
+                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
+                lblEstudiantesEstado.Text = $"✗ Error {res.Codigo} al asignar el estudiante: {detalle}";
+            }
+        }
+        catch (Exception ex)
+        {
+            lblEstudiantesEstado.Text = $"✗ No se pudo asignar el estudiante: {ex.Message}";
+        }
+        finally
+        {
+            btnAsignarEstudiante.IsEnabled = true;
+        }
+    }
+
+    // DELETE api/admin/estudiantes-seccion/{usuarioId}: el estudiante queda sin sección.
+    private async void QuitarEstudianteSeccion(int usuarioId, string nombre)
+    {
+        if (!Confirmar("Quitar de la sección", $"¿Quitar a \"{nombre}\" de su sección?",
+                "Sí, quitar", "El estudiante quedará sin sección; puedes volver a asignarlo cuando quieras."))
+            return;
+
+        try
+        {
+            var res = await ApiService.DeleteAsync($"{Rutas.EstudiantesSeccion}/{usuarioId}");
+            if (res.Exito)
+            {
+                await RecargarEstudiantesSeccion();
+                lblEstudiantesEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Estudiante quitado de la sección." : res.Mensaje)}";
+            }
+            else
+            {
+                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
+                lblEstudiantesEstado.Text = $"✗ Error {res.Codigo} al quitar el estudiante de la sección: {detalle}";
+            }
+        }
+        catch (Exception ex)
+        {
+            lblEstudiantesEstado.Text = $"✗ No se pudo quitar el estudiante de la sección: {ex.Message}";
+        }
     }
 
     // ===== ACTIVIDADES (DOCENTE) =====
@@ -1521,8 +1812,9 @@ public partial class DashboardWindow : Window
         return ok == true ? resultado : null;
     }
 
-    // Diálogo de confirmación (para eliminar). Devuelve true si el usuario acepta.
-    private bool Confirmar(string titulo, string mensaje)
+    // Diálogo de confirmación (para eliminar o quitar). Devuelve true si el usuario acepta.
+    private bool Confirmar(string titulo, string mensaje, string textoAceptar = "Sí, eliminar",
+        string aviso = "Esta acción no se puede deshacer.")
     {
         var cont = new StackPanel();
         cont.Children.Add(new TextBlock
@@ -1534,14 +1826,15 @@ public partial class DashboardWindow : Window
         });
         cont.Children.Add(new TextBlock
         {
-            Text = "Esta acción no se puede deshacer.",
+            Text = aviso,
             FontSize = 13,
             Foreground = Paleta.Apagado,
+            TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 6, 0, 0)
         });
 
         var dlg = NuevoDialogo(titulo, null, cont,
-            out var btnCancelar, out var btnAceptar, "Sí, eliminar", "BtnPeligro", icono: "!");
+            out var btnCancelar, out var btnAceptar, textoAceptar, "BtnPeligro", icono: "!");
         btnCancelar.Click += (_, _) => { dlg.DialogResult = false; };
         btnAceptar.Click += (_, _) => { dlg.DialogResult = true; };
         dlg.KeyDown += (_, e) => { if (e.Key == Key.Escape) dlg.DialogResult = false; };
@@ -1673,7 +1966,7 @@ public partial class DashboardWindow : Window
         var etiquetas = new[]
         {
             lblEstado, lblMateriasEstado, lblUsuariosEstado, lblGradosEstado, lblSeccionesEstado,
-            lblPeriodosEstado, lblAsignacionesEstado, lblTemasEstado, lblSubtemasEstado,
+            lblPeriodosEstado, lblAsignacionesEstado, lblEstudiantesEstado, lblTemasEstado, lblSubtemasEstado,
             lblPreguntaEstado, lblPreguntasEstado, lblActividadesEstado, lblAsignarEstado, lblPublicarEstado
         };
         var descriptor = DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock));

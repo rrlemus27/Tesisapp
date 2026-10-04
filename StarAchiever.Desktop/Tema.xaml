@@ -606,6 +606,59 @@
         </Setter>
     </Style>
 
+    <!-- ===== Sub-pestañas (dentro de una pestaña): más pequeñas y suaves ===== -->
+    <Style x:Key="TabsSub" TargetType="TabControl">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabControl">
+                    <Grid KeyboardNavigation.TabNavigation="Local">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TabPanel Grid.Row="0" IsItemsHost="True" Margin="0,0,0,12"
+                                  KeyboardNavigation.TabIndex="1"/>
+                        <ContentPresenter Grid.Row="1" x:Name="PART_SelectedContentHost"
+                                          ContentSource="SelectedContent"/>
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="TabSub" TargetType="TabItem">
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="TabItem">
+                    <Border x:Name="tab" CornerRadius="16" Background="Transparent"
+                            BorderBrush="{StaticResource BordeBrush}" BorderThickness="1.5"
+                            Padding="14,6" Margin="0,0,8,0">
+                        <ContentPresenter x:Name="hdr" ContentSource="Header"
+                                          HorizontalAlignment="Center" VerticalAlignment="Center"
+                                          TextElement.Foreground="{StaticResource ApagadoBrush}"
+                                          TextElement.FontWeight="ExtraBold" TextElement.FontSize="12.5"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="tab" Property="Background" Value="White"/>
+                            <Setter TargetName="tab" Property="BorderBrush" Value="{StaticResource TealMedioBrush}"/>
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="tab" Property="Background" Value="{StaticResource MentaBrush}"/>
+                            <Setter TargetName="tab" Property="BorderBrush" Value="{StaticResource TealBrush}"/>
+                            <Setter TargetName="hdr" Property="TextElement.Foreground" Value="{StaticResource TealOscuroBrush}"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
     <!-- ===== Barras de desplazamiento finas y redondeadas ===== -->
     <Style x:Key="ScrollPagina" TargetType="RepeatButton">
         <Setter Property="Focusable" Value="False"/>

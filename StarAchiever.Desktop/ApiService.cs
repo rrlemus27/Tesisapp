@@ -16,6 +16,10 @@ public static class Rutas
     public const string Secciones = "Secciones";                   // solo ADMIN
     public const string Usuarios = "Usuarios";                     // solo ADMIN
     public const string PeriodosAcademicos = "PeriodosAcademicos"; // solo ADMIN
+
+    // Asignaciones (solo ADMIN)
+    public const string AsignacionesDocente = "admin/asignaciones-docente"; // GET, POST, DELETE /{id}
+    public const string EstudiantesSeccion = "admin/estudiantes-seccion";   // GET, POST, DELETE /{usuarioId}
 }
 
 // Este servicio es el que le habla a tu API. Guarda el token y hace las llamadas.
