@@ -491,7 +491,8 @@
 
                     <!-- ===== VISTA ADMIN: pestañas por área ===== -->
                     <TabControl x:Name="panelAdmin" Grid.Row="2" Visibility="Collapsed"
-                                Style="{StaticResource Tabs}" ItemContainerStyle="{StaticResource Tab}">
+                                Style="{StaticResource Tabs}" ItemContainerStyle="{StaticResource Tab}"
+                                SelectionChanged="PanelAdmin_SelectionChanged">
 
                         <!-- ===== Materias ===== -->
                         <TabItem Header="Materias">
@@ -750,8 +751,8 @@
                             </Grid>
                         </TabItem>
 
-                        <!-- ===== Asignaciones (deshabilitada: la nueva API no tiene el endpoint de ADMIN) ===== -->
-                        <TabItem>
+                        <!-- ===== Asignaciones: docentes a materia + sección y estudiantes a sección ===== -->
+                        <TabItem x:Name="tabAsignaciones">
                             <TabItem.Header>
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="Asignaciones" VerticalAlignment="Center"/>
@@ -765,8 +766,9 @@
                             </TabItem.Header>
 
                             <Grid>
-                                <!-- Nota: por qué la pestaña está deshabilitada -->
-                                <ScrollViewer x:Name="panelAsignacionesNota" VerticalScrollBarVisibility="Auto">
+                                <!-- Nota (solo se ve si AsignacionesDisponibles = false en el código) -->
+                                <ScrollViewer x:Name="panelAsignacionesNota" VerticalScrollBarVisibility="Auto"
+                                              Visibility="Collapsed">
                                     <ContentControl Style="{StaticResource Tarjeta}" Padding="30,26" Margin="0,0,0,26"
                                                     MaxWidth="640" HorizontalAlignment="Left">
                                         <StackPanel>
@@ -776,16 +778,10 @@
                                                            Foreground="{StaticResource AmarilloTextoBrush}"
                                                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
                                             </Border>
-                                            <TextBlock Text="Asignaciones no disponibles por ahora" Style="{StaticResource TituloTarjeta}"
+                                            <TextBlock Text="Asignaciones desactivadas" Style="{StaticResource TituloTarjeta}"
                                                        FontSize="20" Margin="0,14,0,0"/>
-                                            <TextBlock Style="{StaticResource AyudaTexto}" FontSize="14" Margin="0,8,0,0">
-                                                La nueva versión de la API no tiene un endpoint para que el ADMIN asigne
-                                                docentes a materias y secciones. La ruta que existe,
-                                                <Run Text="api/docente/clases" FontWeight="ExtraBold" Foreground="{StaticResource TealOscuroBrush}"/>,
-                                                solo sirve para que un DOCENTE vea sus propias clases (requiere rol DOCENTE).
-                                            </TextBlock>
-                                            <TextBlock Style="{StaticResource AyudaTexto}" FontSize="14" Margin="0,10,0,0"
-                                                       Text="Por eso esta pestaña queda deshabilitada: no se hace ninguna llamada a la API desde aquí. Cuando la API agregue ese endpoint, se puede volver a activar."/>
+                                            <TextBlock Style="{StaticResource AyudaTexto}" FontSize="14" Margin="0,8,0,0"
+                                                       Text="Esta pestaña está desactivada en esta versión de la app, así que no hace ninguna llamada a la API desde aquí."/>
                                             <Border Background="{StaticResource MentaBrush}" CornerRadius="16" Padding="14,10"
                                                     Margin="0,18,0,0" HorizontalAlignment="Left">
                                                 <TextBlock FontSize="13" FontWeight="SemiBold" TextWrapping="Wrap"
@@ -796,50 +792,108 @@
                                     </ContentControl>
                                 </ScrollViewer>
 
-                                <!-- Formulario original (oculto mientras no exista el endpoint) -->
-                                <Grid x:Name="panelAsignacionesForm" Visibility="Collapsed">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="310"/>
-                                        <ColumnDefinition Width="*"/>
-                                    </Grid.ColumnDefinitions>
+                                <!-- Formularios de asignación -->
+                                <TabControl x:Name="panelAsignacionesForm"
+                                            Style="{StaticResource TabsSub}" ItemContainerStyle="{StaticResource TabSub}">
 
-                                    <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
-                                        <ContentControl Style="{StaticResource Tarjeta}" Margin="0,0,20,20">
-                                            <StackPanel>
-                                                <TextBlock Text="Asignar docente a clase" Style="{StaticResource TituloTarjeta}"
-                                                           Margin="0,0,0,16"/>
+                                    <!-- ===== Docente -> materia + sección (api/admin/asignaciones-docente) ===== -->
+                                    <TabItem Header="Docentes → materia y sección">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="320"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
 
-                                                <TextBlock Text="Docente" Style="{StaticResource Etiqueta}"/>
-                                                <ComboBox x:Name="cmbAsigDocente" Margin="0,0,0,12"/>
+                                            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                                                <ContentControl Style="{StaticResource Tarjeta}" Padding="20" Margin="0,0,20,14">
+                                                    <StackPanel>
+                                                        <TextBlock Text="Asignar docente a clase" Style="{StaticResource TituloTarjeta}"
+                                                                   FontSize="16" Margin="0,0,0,12"/>
 
-                                                <TextBlock Text="Materia" Style="{StaticResource Etiqueta}"/>
-                                                <ComboBox x:Name="cmbAsigMateria" Margin="0,0,0,12"/>
+                                                        <TextBlock Text="Docente" Style="{StaticResource Etiqueta}"/>
+                                                        <ComboBox x:Name="cmbAsigDocente" MinHeight="42" Margin="0,0,0,8"/>
 
-                                                <TextBlock Text="Sección" Style="{StaticResource Etiqueta}"/>
-                                                <ComboBox x:Name="cmbAsigSeccion" Margin="0,0,0,12"/>
+                                                        <TextBlock Text="Materia" Style="{StaticResource Etiqueta}"/>
+                                                        <ComboBox x:Name="cmbAsigMateria" MinHeight="42" Margin="0,0,0,8"/>
 
-                                                <TextBlock Text="Período académico" Style="{StaticResource Etiqueta}"/>
-                                                <ComboBox x:Name="cmbAsigPeriodo" Margin="0,0,0,18"/>
+                                                        <TextBlock Text="Sección" Style="{StaticResource Etiqueta}"/>
+                                                        <ComboBox x:Name="cmbAsigSeccion" MinHeight="42" Margin="0,0,0,8"/>
 
-                                                <Button x:Name="btnCrearAsignacion" Content="＋  Asignar"
-                                                        Style="{StaticResource BtnPrimario}" Click="CrearAsignacion_Click"/>
-                                            </StackPanel>
-                                        </ContentControl>
-                                    </ScrollViewer>
+                                                        <TextBlock Text="Período académico" Style="{StaticResource Etiqueta}"/>
+                                                        <ComboBox x:Name="cmbAsigPeriodo" MinHeight="42" Margin="0,0,0,14"/>
 
-                                    <Grid Grid.Column="1">
-                                        <Grid.RowDefinitions>
-                                            <RowDefinition Height="*"/>
-                                            <RowDefinition Height="Auto"/>
-                                        </Grid.RowDefinitions>
-                                        <ScrollViewer VerticalScrollBarVisibility="Auto">
-                                            <ItemsControl x:Name="listaAsignaciones" Margin="0,0,6,0"/>
-                                        </ScrollViewer>
-                                        <Border Grid.Row="1" Style="{StaticResource CajaEstado}">
-                                            <TextBlock x:Name="lblAsignacionesEstado" Style="{StaticResource TextoEstado}"/>
-                                        </Border>
-                                    </Grid>
-                                </Grid>
+                                                        <Button x:Name="btnCrearAsignacion" Content="＋  Asignar docente"
+                                                                Style="{StaticResource BtnPrimario}" Click="CrearAsignacion_Click"/>
+                                                    </StackPanel>
+                                                </ContentControl>
+                                            </ScrollViewer>
+
+                                            <Grid Grid.Column="1">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="*"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                </Grid.RowDefinitions>
+                                                <TextBlock Text="Docentes asignados" Style="{StaticResource TituloTarjeta}"
+                                                           FontSize="16" Margin="4,4,0,12"/>
+                                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                                    <ItemsControl x:Name="listaAsignaciones" Margin="0,0,6,0"/>
+                                                </ScrollViewer>
+                                                <Border Grid.Row="2" Style="{StaticResource CajaEstado}">
+                                                    <TextBlock x:Name="lblAsignacionesEstado" Style="{StaticResource TextoEstado}"/>
+                                                </Border>
+                                            </Grid>
+                                        </Grid>
+                                    </TabItem>
+
+                                    <!-- ===== Estudiante -> sección (api/admin/estudiantes-seccion) ===== -->
+                                    <TabItem Header="Estudiantes → sección">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="320"/>
+                                                <ColumnDefinition Width="*"/>
+                                            </Grid.ColumnDefinitions>
+
+                                            <ScrollViewer Grid.Column="0" VerticalScrollBarVisibility="Auto">
+                                                <ContentControl Style="{StaticResource Tarjeta}" Padding="20" Margin="0,0,20,14">
+                                                    <StackPanel>
+                                                        <TextBlock Text="Asignar estudiante a sección" Style="{StaticResource TituloTarjeta}"
+                                                                   FontSize="16"/>
+                                                        <TextBlock Text="Si ya tiene sección, se cambia a la nueva."
+                                                                   Style="{StaticResource SubtituloTarjeta}" Margin="0,2,0,12"/>
+
+                                                        <TextBlock Text="Estudiante" Style="{StaticResource Etiqueta}"/>
+                                                        <ComboBox x:Name="cmbEstEstudiante" MinHeight="42" Margin="0,0,0,8"/>
+
+                                                        <TextBlock Text="Sección" Style="{StaticResource Etiqueta}"/>
+                                                        <ComboBox x:Name="cmbEstSeccion" MinHeight="42" Margin="0,0,0,14"/>
+
+                                                        <Button x:Name="btnAsignarEstudiante" Content="＋  Asignar a la sección"
+                                                                Style="{StaticResource BtnPrimario}" Click="AsignarEstudiante_Click"/>
+                                                        <TextBlock Text="Tip: «Asignar» o «Cambiar» en la lista deja elegido al estudiante aquí."
+                                                                   Style="{StaticResource AyudaTexto}" Margin="2,12,0,0"/>
+                                                    </StackPanel>
+                                                </ContentControl>
+                                            </ScrollViewer>
+
+                                            <Grid Grid.Column="1">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto"/>
+                                                    <RowDefinition Height="*"/>
+                                                    <RowDefinition Height="Auto"/>
+                                                </Grid.RowDefinitions>
+                                                <TextBox x:Name="txtBuscarEstudiante" Tag="🔍  Buscar estudiante por nombre…"
+                                                         TextChanged="BuscarEstudiante_Changed" Margin="0,0,0,12"/>
+                                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                                    <ItemsControl x:Name="listaEstudiantesSeccion" Margin="0,0,6,0"/>
+                                                </ScrollViewer>
+                                                <Border Grid.Row="2" Style="{StaticResource CajaEstado}">
+                                                    <TextBlock x:Name="lblEstudiantesEstado" Style="{StaticResource TextoEstado}"/>
+                                                </Border>
+                                            </Grid>
+                                        </Grid>
+                                    </TabItem>
+                                </TabControl>
                             </Grid>
                         </TabItem>
                     </TabControl>
