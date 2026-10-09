@@ -1,186 +1,208 @@
 ﻿<Window x:Class="StarAchiever.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Star-Achiever" Height="720" Width="1100"
-        WindowStartupLocation="CenterScreen"
+        Title="Star-Achiever · Iniciar sesión" Height="680" Width="1060"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         FontFamily="{StaticResource FuenteApp}" Foreground="{StaticResource NavyBrush}">
 
     <Window.Resources>
-        <!-- Botón de icono (ojo de la contraseña): transparente, menta al pasar el mouse. -->
-        <Style x:Key="BtnOjo" TargetType="Button">
+        <!-- Ojo de la contraseña: icono transparente, menta al pasar el mouse. -->
+        <Style x:Key="BtnOjo" TargetType="Button" BasedOn="{StaticResource BtnIcono}">
             <Setter Property="Width" Value="36"/>
             <Setter Property="Height" Value="36"/>
-            <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Foreground" Value="{StaticResource ApagadoBrush}"/>
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="bd" Background="Transparent" CornerRadius="18">
-                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="bd" Property="Background" Value="{StaticResource MentaBrush}"/>
-                                <Setter Property="Foreground" Value="{StaticResource TealOscuroBrush}"/>
-                            </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.5"/>
-                            </Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
+        </Style>
+
+        <!-- Estrellas del panel de marca: titilan muy suave (un detalle, sin exagerar). -->
+        <Style x:Key="EstrellaDecor" TargetType="ContentControl" BasedOn="{StaticResource Icono}">
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Opacity" Value="0.25"/>
+            <Style.Triggers>
+                <EventTrigger RoutedEvent="Loaded">
+                    <BeginStoryboard>
+                        <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                            <DoubleAnimation Storyboard.TargetProperty="Opacity" From="0.15" To="0.55"
+                                             Duration="0:0:2.6">
+                                <DoubleAnimation.EasingFunction>
+                                    <SineEase EasingMode="EaseInOut"/>
+                                </DoubleAnimation.EasingFunction>
+                            </DoubleAnimation>
+                        </Storyboard>
+                    </BeginStoryboard>
+                </EventTrigger>
+            </Style.Triggers>
         </Style>
     </Window.Resources>
 
-    <Grid Margin="16">
+    <Grid Margin="20">
         <!-- Sombra de la ventana (en un borde aparte, detrás del contenido) -->
-        <Border CornerRadius="28" Background="{StaticResource FondoBrush}" Effect="{StaticResource SombraVentana}"/>
+        <Border CornerRadius="{StaticResource RadioGrande}" Background="White" Effect="{StaticResource SombraVentana}"/>
 
-        <Border CornerRadius="28" Background="{StaticResource FondoBrush}"
+        <Border CornerRadius="{StaticResource RadioGrande}" Background="White"
                 BorderBrush="{StaticResource BordeBrush}" BorderThickness="1">
             <Grid>
                 <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="1.05*"/>
+                    <ColumnDefinition Width="0.92*"/>
                     <ColumnDefinition Width="1*"/>
                 </Grid.ColumnDefinitions>
 
                 <!-- Barra superior para mover/cerrar la ventana -->
-                <Border Grid.ColumnSpan="2" VerticalAlignment="Top" Height="64"
+                <Border Grid.ColumnSpan="2" VerticalAlignment="Top" Height="60"
                         Background="Transparent" MouseLeftButtonDown="Barra_Mover" Panel.ZIndex="10">
-                    <Button Content="✕" Style="{StaticResource BtnCerrar}" HorizontalAlignment="Right"
-                            Margin="0,0,18,0" Click="Cerrar_Click" ToolTip="Cerrar"/>
+                    <Button Style="{StaticResource BtnVentana}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Margin="0,0,16,0" Click="Cerrar_Click" ToolTip="Cerrar">
+                        <ContentControl Style="{StaticResource Icono}" Tag="{StaticResource IcoCerrar}" Width="16" Height="16"/>
+                    </Button>
                 </Border>
 
-                <!-- ===== Panel izquierdo: marca, con un pequeño "espacio" de fondo ===== -->
-                <Border Grid.Column="0" CornerRadius="27,0,0,27" Margin="0">
-                    <Border.Background>
-                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                            <GradientStop Color="#08AAA8" Offset="0"/>
-                            <GradientStop Color="#087D80" Offset="1"/>
-                        </LinearGradientBrush>
-                    </Border.Background>
+                <!-- ===== Panel de marca ===== -->
+                <Border Grid.Column="0" CornerRadius="29,0,0,29" Background="{StaticResource FondoMarcaBrush}"
+                        ClipToBounds="True">
                     <Grid>
-                        <!-- Decoración: planetas y estrellas -->
-                        <Canvas IsHitTestVisible="False" ClipToBounds="True">
-                            <Ellipse Canvas.Right="-40" Canvas.Top="-40" Width="200" Height="200"
-                                     Fill="White" Opacity="0.08"/>
-                            <Ellipse Canvas.Left="120" Canvas.Bottom="-130" Width="260" Height="260"
-                                     Fill="White" Opacity="0.06"/>
+                        <!-- Brillo teal muy suave en la esquina inferior -->
+                        <Ellipse Width="460" Height="460" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                 Margin="0,0,-200,-220" IsHitTestVisible="False">
+                            <Ellipse.Fill>
+                                <RadialGradientBrush>
+                                    <GradientStop Color="#5508AAA8" Offset="0"/>
+                                    <GradientStop Color="#0008AAA8" Offset="1"/>
+                                </RadialGradientBrush>
+                            </Ellipse.Fill>
+                        </Ellipse>
 
-                            <!-- Planeta amarillo con anillo -->
-                            <Ellipse Canvas.Right="70" Canvas.Bottom="80" Width="120" Height="120"
-                                     Fill="{StaticResource AmarilloBrush}"/>
-                            <Ellipse Canvas.Right="92" Canvas.Bottom="148" Width="26" Height="16"
-                                     Fill="#F2BC00" Opacity="0.7"/>
-                            <Ellipse Canvas.Right="118" Canvas.Bottom="104" Width="16" Height="12"
-                                     Fill="#F2BC00" Opacity="0.7"/>
-                            <Ellipse Canvas.Right="30" Canvas.Bottom="118" Width="200" Height="46"
-                                     Stroke="White" StrokeThickness="5" Opacity="0.9"
-                                     RenderTransformOrigin="0.5,0.5">
-                                <Ellipse.RenderTransform>
-                                    <RotateTransform Angle="-16"/>
-                                </Ellipse.RenderTransform>
-                            </Ellipse>
-
-                            <!-- Planeta coral y luna morada -->
-                            <Ellipse Canvas.Right="70" Canvas.Top="110" Width="54" Height="54"
-                                     Fill="{StaticResource CoralBrush}"/>
-                            <Ellipse Canvas.Right="84" Canvas.Top="122" Width="12" Height="9"
-                                     Fill="White" Opacity="0.35"/>
-                            <Ellipse Canvas.Left="60" Canvas.Top="92" Width="26" Height="26"
-                                     Fill="{StaticResource MoradoBrush}" Opacity="0.9"/>
-
-                            <!-- Estrellas -->
-                            <TextBlock Canvas.Left="150" Canvas.Top="70" Text="✦" FontSize="22" Foreground="White" Opacity="0.9"/>
-                            <TextBlock Canvas.Right="170" Canvas.Top="52" Text="★" FontSize="16" Foreground="{StaticResource AmarilloBrush}"/>
-                            <TextBlock Canvas.Right="40" Canvas.Top="220" Text="✦" FontSize="14" Foreground="White" Opacity="0.8"/>
-                            <TextBlock Canvas.Left="46" Canvas.Bottom="150" Text="★" FontSize="20" Foreground="{StaticResource AmarilloBrush}"/>
-                            <TextBlock Canvas.Left="210" Canvas.Bottom="60" Text="✦" FontSize="16" Foreground="White" Opacity="0.75"/>
-                            <TextBlock Canvas.Right="250" Canvas.Bottom="200" Text="✦" FontSize="11" Foreground="White" Opacity="0.7"/>
-                            <Ellipse Canvas.Left="110" Canvas.Top="150" Width="6" Height="6" Fill="White" Opacity="0.6"/>
-                            <Ellipse Canvas.Right="130" Canvas.Top="300" Width="5" Height="5" Fill="White" Opacity="0.6"/>
-                            <Ellipse Canvas.Left="300" Canvas.Bottom="110" Width="7" Height="7" Fill="White" Opacity="0.5"/>
+                        <!-- Estrellas decorativas -->
+                        <Canvas IsHitTestVisible="False">
+                            <ContentControl Style="{StaticResource EstrellaDecor}" Tag="{StaticResource IcoChispa}"
+                                            Canvas.Left="372" Canvas.Top="86" Width="20" Height="20"/>
+                            <ContentControl Style="{StaticResource EstrellaDecor}" Tag="{StaticResource IcoEstrella}"
+                                            Canvas.Left="410" Canvas.Top="300" Width="14" Height="14"/>
+                            <ContentControl Style="{StaticResource EstrellaDecor}" Tag="{StaticResource IcoChispa}"
+                                            Canvas.Left="300" Canvas.Top="540" Width="14" Height="14"/>
+                            <ContentControl Tag="{StaticResource IcoEstrella}" Canvas.Left="420" Canvas.Top="520"
+                                            Width="22" Height="22">
+                                <ContentControl.Style>
+                                    <Style TargetType="ContentControl" BasedOn="{StaticResource EstrellaDecor}">
+                                        <Setter Property="Foreground" Value="{StaticResource AmarilloBrush}"/>
+                                    </Style>
+                                </ContentControl.Style>
+                            </ContentControl>
                         </Canvas>
 
-                        <StackPanel VerticalAlignment="Center" Margin="56,0,56,40">
-                            <Border Width="68" Height="68" CornerRadius="22" HorizontalAlignment="Left"
-                                    Background="{StaticResource AmarilloBrush}">
-                                <TextBlock Text="★" FontSize="34" Foreground="{StaticResource AmarilloTextoBrush}"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
-                            </Border>
-                            <TextBlock Text="Star-Achiever" FontSize="44" FontWeight="ExtraBold"
-                                       Foreground="White" Margin="0,18,0,0"/>
-                            <TextBlock Text="Plataforma de Inteligencia Pedagógica y Gamificación Adaptativa"
-                                       FontSize="17" FontWeight="SemiBold" Foreground="#E9FFFC"
-                                       TextWrapping="Wrap" MaxWidth="360" HorizontalAlignment="Left"
-                                       Margin="0,10,0,0"/>
+                        <Grid Margin="52,64,52,40">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="*"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
 
-                            <WrapPanel Margin="0,22,0,0">
-                                <Border Background="{StaticResource BlancoTranslucidoBrush}" CornerRadius="16"
-                                        Padding="14,6" Margin="0,0,8,8">
-                                    <TextBlock Text="★  Logros" FontSize="13" FontWeight="Bold" Foreground="White"/>
-                                </Border>
-                                <Border Background="{StaticResource BlancoTranslucidoBrush}" CornerRadius="16"
-                                        Padding="14,6" Margin="0,0,8,8">
-                                    <TextBlock Text="◆  Retos" FontSize="13" FontWeight="Bold" Foreground="White"/>
-                                </Border>
-                                <Border Background="{StaticResource BlancoTranslucidoBrush}" CornerRadius="16"
-                                        Padding="14,6" Margin="0,0,8,8">
-                                    <TextBlock Text="●  Progreso" FontSize="13" FontWeight="Bold" Foreground="White"/>
-                                </Border>
-                            </WrapPanel>
-
-                            <Border Background="{StaticResource AmarilloBrush}" CornerRadius="18" Padding="16,8"
-                                    HorizontalAlignment="Left" Margin="0,18,0,0">
-                                <TextBlock Text="DEMOSTRACIÓN · TESIS 2026" FontWeight="ExtraBold"
-                                           Foreground="{StaticResource AmarilloTextoBrush}" FontSize="12"/>
+                            <!-- Logo (el mismo de la web) sobre una placa blanca -->
+                            <Border Background="White" CornerRadius="18" Padding="16,12" HorizontalAlignment="Left">
+                                <Image Source="{StaticResource Logo}" Height="52" RenderOptions.BitmapScalingMode="HighQuality"/>
                             </Border>
-                        </StackPanel>
+
+                            <StackPanel Grid.Row="1" VerticalAlignment="Center">
+                                <TextBlock Text="Panel de administración" FontSize="32" FontWeight="ExtraBold"
+                                           Foreground="White" TextWrapping="Wrap"/>
+                                <TextBlock Text="Gestiona usuarios, estudiantes, docentes y la estructura académica de la institución."
+                                           FontSize="15" Foreground="#C8D3F0" TextWrapping="Wrap" LineHeight="22"
+                                           MaxWidth="380" HorizontalAlignment="Left" Margin="0,12,0,26"/>
+
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <Border Width="36" Height="36" CornerRadius="12" Background="{StaticResource BlancoTranslucidoBrush}">
+                                        <ContentControl Style="{StaticResource Icono}" Tag="{StaticResource IcoUsuarios}"
+                                                        Foreground="White" Width="18" Height="18"/>
+                                    </Border>
+                                    <TextBlock Text="Usuarios, estudiantes y docentes" Foreground="White" FontSize="14"
+                                               FontWeight="Bold" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+                                    <Border Width="36" Height="36" CornerRadius="12" Background="{StaticResource BlancoTranslucidoBrush}">
+                                        <ContentControl Style="{StaticResource Icono}" Tag="{StaticResource IcoCapas}"
+                                                        Foreground="White" Width="18" Height="18"/>
+                                    </Border>
+                                    <TextBlock Text="Grados, secciones y períodos" Foreground="White" FontSize="14"
+                                               FontWeight="Bold" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                </StackPanel>
+                                <StackPanel Orientation="Horizontal">
+                                    <Border Width="36" Height="36" CornerRadius="12" Background="{StaticResource BlancoTranslucidoBrush}">
+                                        <ContentControl Style="{StaticResource Icono}" Tag="{StaticResource IcoLibro}"
+                                                        Foreground="White" Width="18" Height="18"/>
+                                    </Border>
+                                    <TextBlock Text="Materias y asignaciones" Foreground="White" FontSize="14"
+                                               FontWeight="Bold" VerticalAlignment="Center" Margin="12,0,0,0"/>
+                                </StackPanel>
+                            </StackPanel>
+
+                            <Border Grid.Row="2" BorderBrush="#40FFFFFF" BorderThickness="1" CornerRadius="12"
+                                    Padding="12,5" HorizontalAlignment="Left">
+                                <TextBlock Text="Demostración · Tesis 2026" FontSize="12" FontWeight="Bold" Foreground="#C8D3F0"/>
+                            </Border>
+                        </Grid>
                     </Grid>
                 </Border>
 
-                <!-- ===== Panel derecho: formulario ===== -->
-                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="60,0">
-                    <Border Background="{StaticResource MentaBrush}" CornerRadius="16" Padding="14,6"
+                <!-- ===== Formulario ===== -->
+                <StackPanel Grid.Column="1" VerticalAlignment="Center" Margin="64,0">
+                    <Border Background="{StaticResource MentaBrush}" CornerRadius="12" Padding="10,5,12,5"
                             HorizontalAlignment="Left">
-                        <TextBlock Text="¡Hola de nuevo!" FontSize="13" FontWeight="ExtraBold"
-                                   Foreground="{StaticResource TealOscuroBrush}"/>
+                        <StackPanel Orientation="Horizontal">
+                            <ContentControl Style="{StaticResource Icono}" Tag="{StaticResource IcoEstrella}" Width="14" Height="14"
+                                            Foreground="{StaticResource TealOscuroBrush}"/>
+                            <TextBlock Text="Bienvenido de nuevo" FontSize="12.5" FontWeight="ExtraBold" Margin="6,0,0,0"
+                                       Foreground="{StaticResource TealOscuroBrush}" VerticalAlignment="Center"/>
+                        </StackPanel>
                     </Border>
-                    <TextBlock Text="Inicia sesión" FontSize="34" FontWeight="ExtraBold" Margin="0,12,0,0"/>
-                    <TextBlock Text="Ingresa con tu usuario o correo para continuar tu aventura."
-                               FontSize="15" Foreground="{StaticResource ApagadoBrush}"
+                    <TextBlock Text="Inicia sesión" FontSize="30" FontWeight="ExtraBold" Margin="0,14,0,0"/>
+                    <TextBlock Text="Ingresa con tu usuario o correo y tu contraseña."
+                               FontSize="14.5" Foreground="{StaticResource ApagadoBrush}"
                                TextWrapping="Wrap" Margin="0,4,0,28"/>
 
                     <TextBlock Text="Usuario o correo" Style="{StaticResource Etiqueta}"/>
-                    <TextBox x:Name="txtUsuario" MinHeight="52" FontSize="15" MaxLength="120"
-                             Tag="Escribe tu usuario o correo"/>
+                    <Grid>
+                        <TextBox x:Name="txtUsuario" MinHeight="50" FontSize="15" MaxLength="120" Padding="44,0,14,0"
+                                 Tag="tucorreo@colegio.edu o tu usuario"/>
+                        <ContentControl Style="{StaticResource Icono}" Tag="{StaticResource IcoUsuario}" Width="19" Height="19"
+                                        Foreground="#2D4B86" HorizontalAlignment="Left" Margin="16,0,0,0"/>
+                    </Grid>
 
-                    <TextBlock Text="Contraseña" Style="{StaticResource Etiqueta}" Margin="2,18,0,6"/>
+                    <TextBlock Text="Contraseña" Style="{StaticResource Etiqueta}" Margin="2,18,0,7"/>
                     <!-- La contraseña se escribe en el PasswordBox; el ojo la muestra en un TextBox
                          superpuesto (y la vuelve a ocultar). Solo uno de los dos está visible. -->
                     <Grid>
-                        <PasswordBox x:Name="txtClave" MinHeight="52" FontSize="15" MaxLength="128"
-                                     Padding="14,0,52,0"/>
-                        <TextBox x:Name="txtClaveVisible" MinHeight="52" FontSize="15" MaxLength="128"
-                                 Padding="14,0,52,0" FontWeight="Normal" IsUndoEnabled="False"
+                        <PasswordBox x:Name="txtClave" MinHeight="50" FontSize="15" MaxLength="128"
+                                     Padding="44,0,52,0"/>
+                        <TextBox x:Name="txtClaveVisible" MinHeight="50" FontSize="15" MaxLength="128"
+                                 Padding="44,0,52,0" FontWeight="Normal" IsUndoEnabled="False"
                                  Visibility="Collapsed"/>
-                        <Button x:Name="btnVerClave" HorizontalAlignment="Right" Margin="0,0,9,0"
+                        <ContentControl Style="{StaticResource Icono}" Tag="{StaticResource IcoCandado}" Width="19" Height="19"
+                                        Foreground="#2D4B86" HorizontalAlignment="Left" Margin="16,0,0,0"/>
+                        <Button x:Name="btnVerClave" HorizontalAlignment="Right" Margin="0,0,8,0"
                                 Style="{StaticResource BtnOjo}" Focusable="False"
                                 Click="VerClave_Click" ToolTip="Mostrar contraseña">
-                            <TextBlock x:Name="icoVerClave" Text="&#xE7B3;" FontSize="16"
-                                       FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"/>
+                            <ContentControl x:Name="icoVerClave" Style="{StaticResource Icono}" Tag="{StaticResource IcoOjo}"
+                                            Width="19" Height="19"/>
                         </Button>
                     </Grid>
 
+                    <!-- Error del login (notificación discreta con icono) -->
                     <Border x:Name="brdError" Style="{StaticResource CajaEstado}" Margin="0,16,0,0"
-                            Background="{StaticResource CoralSuaveBrush}" BorderBrush="{StaticResource CoralBrush}"
+                            Background="{StaticResource ErrorFondoBrush}" BorderBrush="{StaticResource ErrorBordeBrush}"
                             Visibility="Collapsed">
-                        <TextBlock x:Name="lblError" Style="{StaticResource TextoEstado}"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <ContentControl Style="{StaticResource Icono}" Tag="{StaticResource IcoError}" Width="18" Height="18"
+                                            Foreground="{StaticResource ErrorTextoBrush}" VerticalAlignment="Top"
+                                            Margin="0,0,10,0"/>
+                            <TextBlock x:Name="lblError" Grid.Column="1" Style="{StaticResource TextoEstado}"
+                                       Foreground="{StaticResource ErrorTextoBrush}"/>
+                        </Grid>
                     </Border>
 
-                    <Button x:Name="btnLogin" Content="Ingresar" Height="54" FontSize="16" Margin="0,26,0,0"
+                    <Button x:Name="btnLogin" Content="Ingresar" Height="52" FontSize="15.5" Margin="0,24,0,0"
                             Style="{StaticResource BtnPrimario}" IsDefault="True" Click="Login_Click"/>
 
                     <!-- Estado real de la API (GET api/health al abrir la ventana). -->

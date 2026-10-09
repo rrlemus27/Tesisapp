@@ -75,6 +75,7 @@ public partial class DashboardWindow : Window
     {
         InitializeComponent();
         ColorearMensajesDeEstado();
+        ConfigurarVista(); // capa visual (DashboardWindow.Vista.cs)
         ApiService.SesionExpirada += AlExpirarSesion;
         Closed += (_, _) => ApiService.SesionExpirada -= AlExpirarSesion;
         Cargar();
@@ -186,11 +187,11 @@ public partial class DashboardWindow : Window
 
     private static readonly (string titulo, Tono tono, string icono)[] TarjetasResumen =
     {
-        ("Estudiantes", Tono.Teal, "★"),
-        ("Docentes", Tono.Morado, "◆"),
-        ("Materias", Tono.Amarillo, "●"),
-        ("Secciones", Tono.Coral, "▲"),
-        ("Clases", Tono.Verde, "■")
+        ("Estudiantes", Tono.Teal, "IcoEstudiantes"),
+        ("Docentes", Tono.Morado, "IcoDocentes"),
+        ("Materias", Tono.Amarillo, "IcoLibro"),
+        ("Secciones", Tono.Teal, "IcoCapas"),
+        ("Clases", Tono.Verde, "IcoAsignaciones")
     };
 
     private void MostrarResumenCargando()
@@ -256,53 +257,48 @@ public partial class DashboardWindow : Window
         return (_asignacionesData.Count.ToString(), detalle, null);
     }
 
-    // Tarjeta del resumen: círculo de color, título, número grande y detalle.
+    // Tarjeta del resumen (.summary-card de la web): icono en un recuadro de color, título,
+    // número grande y detalle. Si el dato no se pudo cargar o no existe, el detalle va en coral.
     private ContentControl TarjetaResumen(string titulo, string valor, string detalle, Tono tono, string icono,
         string? ayuda = null)
     {
         var (fuerte, suave) = Ui.Colores(tono);
-        var circulo = new Border
+        var recuadro = new Border
         {
-            Width = 36,
-            Height = 36,
-            CornerRadius = new CornerRadius(18),
+            Width = 46,
+            Height = 46,
+            CornerRadius = new CornerRadius(15),
             Background = suave,
-            VerticalAlignment = VerticalAlignment.Top,
-            Child = new TextBlock
-            {
-                Text = icono,
-                FontSize = 15,
-                Foreground = fuerte,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            }
+            VerticalAlignment = VerticalAlignment.Center,
+            Child = Ui.Icono(icono, 22, fuerte)
         };
 
         bool esNumero = valor.Length > 0 && valor.All(char.IsDigit);
-        bool alerta = valor == "—"; // no se pudo cargar o no disponible: el detalle va en coral
-        var textos = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
+        bool alerta = valor == "—"; // no se pudo cargar o no disponible
+        var textos = new StackPanel { Margin = new Thickness(14, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         textos.Children.Add(new TextBlock
         {
-            Text = titulo.ToUpper(),
-            FontSize = 11,
-            FontWeight = FontWeights.ExtraBold,
+            Text = titulo,
+            FontSize = 13,
+            FontWeight = FontWeights.Bold,
             Foreground = Paleta.Apagado,
             TextTrimming = TextTrimming.CharacterEllipsis
         });
         textos.Children.Add(new TextBlock
         {
             Text = valor,
-            FontSize = 22,
+            FontSize = 28,
             FontWeight = FontWeights.ExtraBold,
             Foreground = esNumero ? Paleta.Navy : Paleta.Apagado,
+            Margin = new Thickness(0, -2, 0, -2),
             TextTrimming = TextTrimming.CharacterEllipsis
         });
         textos.Children.Add(new TextBlock
         {
             Text = detalle,
-            FontSize = 11.5,
-            FontWeight = alerta ? FontWeights.Bold : FontWeights.Normal,
-            Foreground = alerta ? Paleta.Coral : Paleta.Apagado,
+            FontSize = 12,
+            FontWeight = alerta ? FontWeights.Bold : FontWeights.SemiBold,
+            Foreground = alerta ? Paleta.CoralTexto : Paleta.Apagado,
             TextTrimming = TextTrimming.CharacterEllipsis
         });
 
@@ -310,50 +306,43 @@ public partial class DashboardWindow : Window
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         Grid.SetColumn(textos, 1);
-        grid.Children.Add(circulo);
+        grid.Children.Add(recuadro);
         grid.Children.Add(textos);
 
         return new ContentControl
         {
             Style = (Style)FindResource("Tarjeta"),
-            Padding = new Thickness(12, 10, 12, 10),
-            Margin = new Thickness(0, 0, 10, 0),
+            Padding = new Thickness(18, 16, 14, 16),
+            Margin = new Thickness(0, 0, 14, 0),
             Content = grid,
             ToolTip = ayuda ?? $"{titulo}: {valor} · {detalle}"
         };
     }
 
-    // Crea una tarjeta de stat arriba: blanca, con un círculo de color y el dato.
+    // Crea una tarjeta de stat arriba (vista de los otros roles): icono de color y el dato.
     private void Stat(string arriba, string abajo)
     {
         // Cada tarjeta toma un color distinto de la paleta (teal, morado, amarillo…).
-        var tonos = new[] { Tono.Teal, Tono.Morado, Tono.Amarillo, Tono.Coral };
-        var iconos = new[] { "★", "◆", "●", "▲" };
+        var tonos = new[] { Tono.Teal, Tono.Morado, Tono.Amarillo, Tono.Verde };
+        var iconos = new[] { "IcoEstrella", "IcoLibro", "IcoChispa", "IcoUsuario" };
         int n = panelStats.Children.Count;
         var (fuerte, suave) = Ui.Colores(tonos[n % tonos.Length]);
 
         var icono = new Border
         {
-            Width = 38,
-            Height = 38,
-            CornerRadius = new CornerRadius(19),
+            Width = 42,
+            Height = 42,
+            CornerRadius = new CornerRadius(14),
             Background = suave,
             VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock
-            {
-                Text = iconos[n % iconos.Length],
-                FontSize = 16,
-                Foreground = fuerte,
-                HorizontalAlignment = HorizontalAlignment.Center,
-                VerticalAlignment = VerticalAlignment.Center
-            }
+            Child = Ui.Icono(iconos[n % iconos.Length], 20, fuerte)
         };
         var textos = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
         textos.Children.Add(new TextBlock
         {
-            Text = arriba.ToUpper(),
-            FontSize = 11,
-            FontWeight = FontWeights.ExtraBold,
+            Text = arriba,
+            FontSize = 12.5,
+            FontWeight = FontWeights.Bold,
             Foreground = Paleta.Apagado
         });
         textos.Children.Add(new TextBlock
@@ -372,7 +361,7 @@ public partial class DashboardWindow : Window
         panelStats.Children.Add(new ContentControl
         {
             Style = (Style)FindResource("Tarjeta"),
-            Padding = new Thickness(14, 10, 22, 10),
+            Padding = new Thickness(16, 12, 24, 12),
             Margin = new Thickness(0, 0, 14, 0),
             Content = fila
         });
@@ -457,6 +446,8 @@ public partial class DashboardWindow : Window
         if (_materiasData is null) return;
         filtro = (filtro ?? "").Trim();
 
+        int estado = cmbFiltroEstadoMaterias?.SelectedIndex ?? 0; // 0 = todas, 1 = activas, 2 = inactivas
+
         listaMaterias.Items.Clear();
         int i = 1, mostrados = 0;
         foreach (var item in _materiasData)
@@ -466,15 +457,18 @@ public partial class DashboardWindow : Window
 
             int id = item["id"]?.Value<int>() ?? 0;
             bool activa = item["activa"]?.Value<bool?>() ?? true;
+            if ((estado == 1 && !activa) || (estado == 2 && activa)) continue;
             listaMaterias.Items.Add(CrearFila(i++, nombre, activa ? "Activa" : "Inactiva", id, activa, conAcciones: true));
             mostrados++;
         }
-        lblMateriasEstado.Text = filtro.Length > 0
-            ? $"✓ {mostrados} de {_materiasData.Count} materia(s) (filtro: \"{filtro}\")."
+        lblMateriasEstado.Text = filtro.Length > 0 || estado > 0
+            ? $"✓ {mostrados} de {_materiasData.Count} materia(s) con los filtros aplicados."
             : $"✓ {_materiasData.Count} materia(s).";
     }
 
     private void BuscarMateria_Changed(object sender, TextChangedEventArgs e) => RenderMaterias(txtBuscarMateria.Text);
+    private void FiltroMaterias_Changed(object sender, SelectionChangedEventArgs e) =>
+        RenderMaterias(txtBuscarMateria?.Text ?? "");
 
     // Carga usuarios (con botones Editar/Eliminar), guardando los datos para poder filtrar.
     private async System.Threading.Tasks.Task RecargarUsuarios()
@@ -517,15 +511,20 @@ public partial class DashboardWindow : Window
         if (_usuariosData is null) return;
         filtro = (filtro ?? "").Trim();
 
+        var rolFiltro = (cmbFiltroRolUsuarios?.SelectedItem as ComboBoxItem)?.Tag as string; // null = todos
+        int estado = cmbFiltroEstadoUsuarios?.SelectedIndex ?? 0; // 0 = todos, 1 = activos, 2 = de baja
+
         listaUsuarios.Items.Clear();
         int i = 1, mostrados = 0;
         foreach (var item in _usuariosData)
         {
             var nombreCompleto = item["nombreCompleto"]?.ToString() ?? "-";
-            if (filtro.Length > 0 && !nombreCompleto.Contains(filtro, StringComparison.OrdinalIgnoreCase)) continue;
+            var correo = item["correoOUsuario"]?.ToString() ?? "";
+            if (!Coincide(filtro, nombreCompleto, correo)) continue;
+            if (rolFiltro != null && CodigoRol(item) != rolFiltro) continue;
+            if ((estado == 1 && !Activo(item, "activo")) || (estado == 2 && Activo(item, "activo"))) continue;
 
             int id = item["id"]?.Value<int>() ?? 0;
-            var correo = item["correoOUsuario"]?.ToString() ?? "";
             var rol = item["rol"]?.ToString() ?? "";
             // Si la lista no trae rolId, lo deducimos del código del rol para que
             // «Editar» no cambie el rol del usuario por accidente.
@@ -534,12 +533,14 @@ public partial class DashboardWindow : Window
             listaUsuarios.Items.Add(CrearFilaUsuario(i++, id, nombreCompleto, correo, rol, rolId, activo));
             mostrados++;
         }
-        lblUsuariosEstado.Text = filtro.Length > 0
-            ? $"✓ {mostrados} de {_usuariosData.Count} usuario(s) (filtro: \"{filtro}\")."
+        lblUsuariosEstado.Text = filtro.Length > 0 || rolFiltro != null || estado > 0
+            ? $"✓ {mostrados} de {_usuariosData.Count} usuario(s) con los filtros aplicados."
             : $"✓ {_usuariosData.Count} usuario(s).";
     }
 
     private void BuscarUsuario_Changed(object sender, TextChangedEventArgs e) => RenderUsuarios(txtBuscarUsuario.Text);
+    private void FiltroUsuarios_Changed(object sender, SelectionChangedEventArgs e) =>
+        RenderUsuarios(txtBuscarUsuario?.Text ?? "");
 
     // ===== ROLES: ids y códigos reales de GET api/roles (no se suponen) =====
 
@@ -1289,7 +1290,7 @@ public partial class DashboardWindow : Window
         {
             bool confirmado = activar
                 ? Confirmar("Reactivar cuenta", $"¿Reactivar a \"{nombre}\"?", "Sí, reactivar",
-                    "Podrá volver a iniciar sesión.", "BtnPrimario", "✓", Tono.Verde)
+                    "Podrá volver a iniciar sesión.", "BtnExito", "✓", Tono.Verde)
                 : Confirmar("Dar de baja", $"¿Dar de baja a \"{nombre}\"?", "Sí, dar de baja",
                     "No podrá iniciar sesión. No se borra ningún dato y puedes reactivarlo cuando quieras."
                     + (avisoBaja is null ? "" : $"\n{avisoBaja}"));
@@ -1423,12 +1424,15 @@ public partial class DashboardWindow : Window
         if (_usuariosData is null || listaDocentes is null) return;
         var filtro = (txtBuscarDocente.Text ?? "").Trim();
 
+        int estado = cmbFiltroEstadoDocentes?.SelectedIndex ?? 0; // 0 = todos, 1 = activos, 2 = de baja
+
         var docentes = _usuariosData.Where(u => EsRol(u, "DOCENTE")).ToList();
         listaDocentes.Items.Clear();
         int i = 1;
         foreach (var u in docentes)
         {
             if (!Coincide(filtro, NombreDeUsuario(u), Texto(u, "correoOUsuario"))) continue;
+            if ((estado == 1 && !Activo(u, "activo")) || (estado == 2 && Activo(u, "activo"))) continue;
             listaDocentes.Items.Add(CrearFilaDocente(i++, u));
         }
 
@@ -1445,6 +1449,7 @@ public partial class DashboardWindow : Window
     }
 
     private void BuscarDocente_Changed(object sender, TextChangedEventArgs e) => RenderDocentes();
+    private void FiltroDocentes_Changed(object sender, SelectionChangedEventArgs e) => RenderDocentes();
 
     private List<JToken> ClasesDe(int docenteId) =>
         _asignacionesData?.Where(a => DocenteDe(a) == docenteId).ToList() ?? new List<JToken>();
@@ -1467,12 +1472,7 @@ public partial class DashboardWindow : Window
         var aviso = cantidad > 0 ? $"Sus {cantidad} clase(s) asignada(s) no se quitan." : null;
 
         var fila = Ui.Fila(num, info, btnClases, BotonEstado(id, nombre, activo, lblDocentesEstado, aviso));
-        if (id == _docenteSeleccionadoId)
-        {
-            // Solo el borde: con fondo menta los botones de la fila perderían su color.
-            fila.BorderBrush = Paleta.Teal;
-            fila.BorderThickness = new Thickness(2);
-        }
+        if (id == _docenteSeleccionadoId) Ui.MarcarSeleccion(fila);
         return fila;
     }
 
@@ -2619,7 +2619,7 @@ public partial class DashboardWindow : Window
             guardando = true;
             error.Text = "";
             btnGuardar.IsEnabled = btnCancelar.IsEnabled = false;
-            btnGuardar.Content = Ui.Cargando("Guardando…", Paleta.AmarilloTexto);
+            btnGuardar.Content = Ui.Cargando("Guardando…");
 
             string? fallo;
             try { fallo = await guardar(); }
@@ -2638,24 +2638,19 @@ public partial class DashboardWindow : Window
         };
     }
 
-    // Cajita de error dentro de un diálogo (oculta mientras no haya texto).
+    // Cajita de error dentro de un diálogo: la misma notificación con icono que el resto de
+    // la app (oculta mientras no haya texto).
     private static TextBlock CajaErrorDialogo(StackPanel cont)
     {
-        var (fuerte, suave) = Ui.Colores(Tono.Coral);
         var texto = new TextBlock { Style = (Style)Application.Current.FindResource("TextoEstado") };
         var caja = new Border
         {
             Style = (Style)Application.Current.FindResource("CajaEstado"),
-            Background = suave,
-            BorderBrush = fuerte,
-            Margin = new Thickness(0, 12, 0, 0),
-            Visibility = Visibility.Collapsed,
+            Margin = new Thickness(0, 14, 0, 0),
             Child = texto
         };
-        DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock))
-            .AddValueChanged(texto, (_, _) =>
-                caja.Visibility = string.IsNullOrWhiteSpace(texto.Text) ? Visibility.Collapsed : Visibility.Visible);
         cont.Children.Add(caja);
+        Ui.ComoNotificacion(texto);
         return texto;
     }
 
@@ -2722,27 +2717,31 @@ public partial class DashboardWindow : Window
         if (icono != null)
         {
             var (fuerte, suave) = Ui.Colores(tonoIcono);
+            // «!» = aviso y «✓» = éxito se dibujan con los iconos de la web.
+            var clave = icono switch { "!" => "IcoAviso", "✓" => "IcoOk", _ => null };
             cabecera.Children.Add(new Border
             {
-                Width = 44,
-                Height = 44,
-                CornerRadius = new CornerRadius(22),
+                Width = 46,
+                Height = 46,
+                CornerRadius = new CornerRadius(15),
                 Background = suave,
                 Margin = new Thickness(0, 0, 14, 0),
                 VerticalAlignment = VerticalAlignment.Center,
-                Child = new TextBlock
-                {
-                    Text = icono,
-                    FontSize = 22,
-                    FontWeight = FontWeights.Black,
-                    Foreground = fuerte,
-                    HorizontalAlignment = HorizontalAlignment.Center,
-                    VerticalAlignment = VerticalAlignment.Center
-                }
+                Child = clave != null
+                    ? Ui.Icono(clave, 22, fuerte)
+                    : new TextBlock
+                    {
+                        Text = icono,
+                        FontSize = 20,
+                        FontWeight = FontWeights.Black,
+                        Foreground = fuerte,
+                        HorizontalAlignment = HorizontalAlignment.Center,
+                        VerticalAlignment = VerticalAlignment.Center
+                    }
             });
         }
         var textos = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
-        textos.Children.Add(new TextBlock { Text = titulo, FontSize = 22, FontWeight = FontWeights.ExtraBold });
+        textos.Children.Add(new TextBlock { Text = titulo, FontSize = 21, FontWeight = FontWeights.ExtraBold });
         if (subtitulo != null)
             textos.Children.Add(new TextBlock
             {
@@ -2781,23 +2780,24 @@ public partial class DashboardWindow : Window
         cuerpo.Children.Add(fila);
 
         // Sombra en un borde aparte (detrás) para no re-renderizar el contenido con el efecto.
-        var raiz = new Grid { Margin = new Thickness(24) };
-        raiz.Children.Add(new Border
+        var marco = new Grid { Margin = new Thickness(26) };
+        marco.Children.Add(new Border
         {
-            CornerRadius = new CornerRadius(26),
+            CornerRadius = (CornerRadius)FindResource("RadioGrande"),
             Background = Brushes.White,
-            Effect = (Effect)FindResource("SombraSuave")
+            Effect = (Effect)FindResource("SombraVentana")
         });
-        raiz.Children.Add(new Border
+        marco.Children.Add(new Border
         {
-            CornerRadius = new CornerRadius(26),
+            CornerRadius = (CornerRadius)FindResource("RadioGrande"),
             Background = Brushes.White,
             BorderBrush = Paleta.Borde,
             BorderThickness = new Thickness(1),
-            Padding = new Thickness(28, 26, 28, 26),
+            Padding = new Thickness(30, 28, 30, 28),
             Child = cuerpo
         });
-        dlg.Content = raiz;
+        dlg.Content = marco;
+        Ui.Aparecer(marco, 10, 200);
         return dlg;
     }
 
@@ -2812,8 +2812,8 @@ public partial class DashboardWindow : Window
         return caja;
     }
 
-    // Los mensajes de estado (✓ / ✗) se muestran en una cajita de color:
-    // verde si salió bien, coral si hubo error, neutra en otro caso; oculta si no hay texto.
+    // Los mensajes de estado (✓ / ✗) se muestran como notificaciones discretas con icono:
+    // éxito, aviso (no disponible), error o información; ocultas si no hay texto.
     private void ColorearMensajesDeEstado()
     {
         var etiquetas = new[]
@@ -2823,22 +2823,7 @@ public partial class DashboardWindow : Window
             lblPreguntaEstado, lblPreguntasEstado, lblActividadesEstado, lblAsignarEstado, lblPublicarEstado,
             lblEstAdminEstado, lblDocentesEstado, lblClasesDocenteEstado
         };
-        var descriptor = DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock));
-        foreach (var lbl in etiquetas)
-        {
-            if (lbl.Parent is not Border caja) continue;
-            void Pintar()
-            {
-                var texto = lbl.Text ?? "";
-                caja.Visibility = string.IsNullOrWhiteSpace(texto) ? Visibility.Collapsed : Visibility.Visible;
-                var tono = texto.StartsWith("✗") ? Tono.Coral : texto.StartsWith("✓") ? Tono.Verde : Tono.Neutro;
-                var (fuerte, suave) = Ui.Colores(tono);
-                caja.Background = suave;
-                caja.BorderBrush = tono == Tono.Neutro ? Paleta.Borde : fuerte;
-            }
-            descriptor.AddValueChanged(lbl, (_, _) => Pintar());
-            Pintar();
-        }
+        foreach (var lbl in etiquetas) Ui.ComoNotificacion(lbl);
     }
 
     // Crea una materia (POST api/Materias) y refresca la lista para verla al instante.

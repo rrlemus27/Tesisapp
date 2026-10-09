@@ -15,6 +15,9 @@
   <ItemGroup>
     <!-- Fuente Nunito (SIL Open Font License, ver Fonts/OFL.txt) embebida en la app. -->
     <Resource Include="Fonts\*.ttf" />
+    <!-- Logo de Star-Achiever (el mismo de la web docente: wwwroot/assets/logo-original.png).
+         Para cambiarlo basta con reemplazar Assets\logo.png. -->
+    <Resource Include="Assets\logo.png" />
   </ItemGroup>
 
 </Project>

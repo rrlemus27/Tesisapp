@@ -44,7 +44,7 @@ public partial class MainWindow : Window
             txtClaveVisible.Clear(); // no dejamos la contraseña en texto plano en un control oculto
             txtClaveVisible.Visibility = Visibility.Collapsed;
             txtClave.Visibility = Visibility.Visible;
-            icoVerClave.Text = ""; // ojo
+            icoVerClave.Tag = FindResource("IcoOjo"); // ojo
             btnVerClave.ToolTip = "Mostrar contraseña";
             txtClave.Focus();
         }
@@ -54,7 +54,7 @@ public partial class MainWindow : Window
             txtClave.Clear();
             txtClave.Visibility = Visibility.Collapsed;
             txtClaveVisible.Visibility = Visibility.Visible;
-            icoVerClave.Text = ""; // ojo tachado
+            icoVerClave.Tag = FindResource("IcoOjoTachado"); // ojo tachado
             btnVerClave.ToolTip = "Ocultar contraseña";
             txtClaveVisible.Focus();
             txtClaveVisible.CaretIndex = txtClaveVisible.Text.Length;

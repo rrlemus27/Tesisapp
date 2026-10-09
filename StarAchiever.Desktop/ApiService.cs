@@ -45,6 +45,11 @@ public static class ApiService
     // respondió 401 a una llamada autenticada. La sesión ya está cerrada al dispararse.
     public static event Action? SesionExpirada;
 
+    // Peticiones en curso: solo informa a la interfaz (indicador de carga); no cambia nada.
+    private static int _peticionesEnCurso;
+    public static bool Ocupado => _peticionesEnCurso > 0;
+    public static event Action? OcupadoCambio;
+
     private static HttpClient CrearCliente()
     {
         var handler = new HttpClientHandler
@@ -146,6 +151,7 @@ public static class ApiService
         using var peticion = new HttpRequestMessage(metodo, $"{BaseUrl}/{ruta}") { Content = contenido };
         if (autenticada) peticion.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
 
+        if (Interlocked.Increment(ref _peticionesEnCurso) == 1) OcupadoCambio?.Invoke();
         try
         {
             using var resp = await _http.SendAsync(peticion);
@@ -164,6 +170,10 @@ public static class ApiService
         catch (HttpRequestException)
         {
             return ApiResult.SinConexion($"No se pudo conectar con la API ({Servidor}). Verifica que esté en ejecución y que tengas conexión.");
+        }
+        finally
+        {
+            if (Interlocked.Decrement(ref _peticionesEnCurso) == 0) OcupadoCambio?.Invoke();
         }
     }
 
