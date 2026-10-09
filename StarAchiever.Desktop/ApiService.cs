@@ -1,5 +1,7 @@
 ﻿using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
+using System.Net.Security;
 using System.Text;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
@@ -11,13 +13,16 @@ namespace StarAchiever.Desktop;
 public static class Rutas
 {
     public const string Login = "Auth/login";
+    public const string Health = "health";                         // anónimo: { api, database }
+    public const string Roles = "Roles";                           // cualquier usuario autenticado
     public const string Materias = "Materias";                     // GET: ADMIN y DOCENTE · POST/PUT/DELETE: ADMIN
     public const string Grados = "Grados";                         // solo ADMIN
     public const string Secciones = "Secciones";                   // solo ADMIN
     public const string Usuarios = "Usuarios";                     // solo ADMIN
     public const string PeriodosAcademicos = "PeriodosAcademicos"; // solo ADMIN
 
-    // Asignaciones (solo ADMIN)
+    // Asignaciones (solo ADMIN). OJO: la API actual (StarAchiever.Api) NO tiene estos
+    // controladores; responden 404 y la app los marca como «no disponible».
     public const string AsignacionesDocente = "admin/asignaciones-docente"; // GET, POST, DELETE /{id}
     public const string EstudiantesSeccion = "admin/estudiantes-seccion";   // GET, POST, DELETE /{usuarioId}
 }
@@ -25,103 +30,169 @@ public static class Rutas
 // Este servicio es el que le habla a tu API. Guarda el token y hace las llamadas.
 public static class ApiService
 {
-    private const string BaseUrl = "https://localhost:7173/api";
+    public const string Servidor = "https://localhost:7173";
+    private const string BaseUrl = Servidor + "/api";
     private static readonly HttpClient _http = CrearCliente();
 
-    public static string? Token { get; set; }
-    public static string? Rol { get; set; }
-    public static string? NombreUsuario { get; set; }
-    public static int UsuarioId { get; set; }
+    public static string? Token { get; private set; }
+    public static string? Rol { get; private set; }
+    public static string? NombreUsuario { get; private set; }
+    public static int UsuarioId { get; private set; }
+    // Vencimiento del token (claim "exp" del JWT), para avisar antes de llamar a la API.
+    public static DateTime? TokenExpiraUtc { get; private set; }
+
+    // Se dispara (una vez) cuando la sesión deja de ser válida: el token venció o la API
+    // respondió 401 a una llamada autenticada. La sesión ya está cerrada al dispararse.
+    public static event Action? SesionExpirada;
 
     private static HttpClient CrearCliente()
     {
-        // Ignora el certificado local de desarrollo (localhost)
         var handler = new HttpClientHandler
         {
-            ServerCertificateCustomValidationCallback = (m, c, ch, e) => true
+            // Solo se acepta el certificado de desarrollo cuando el servidor es local
+            // (localhost); para cualquier otro host se exige un certificado válido.
+            ServerCertificateCustomValidationCallback = (mensaje, cert, cadena, errores) =>
+                errores == SslPolicyErrors.None || mensaje.RequestUri?.IsLoopback == true
         };
-        return new HttpClient(handler);
-    }
-
-    // Pone el token en las cabeceras para las llamadas protegidas
-    private static void UsarToken()
-    {
-        _http.DefaultRequestHeaders.Authorization =
-            string.IsNullOrEmpty(Token)
-                ? null
-                : new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Token);
+        // Sin respuesta en 30 s se avisa al usuario en lugar de esperar los 100 s por defecto.
+        return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(30) };
     }
 
     // ---- LOGIN ---- POST api/Auth/login
-    // Si entra bien guarda token, rol y nombre. Si falla, el resultado trae
-    // el código y el mensaje reales de la API para mostrarlos en pantalla.
+    // Si entra bien guarda token, rol y nombre. Si falla, el resultado trae el código
+    // y el mensaje de la API (nunca la contraseña ni el token).
     public static async Task<ApiResult> LoginAsync(string usuario, string clave)
     {
-        var res = await PostAsync(Rutas.Login, new { correoOUsuario = usuario, clave = clave });
+        CerrarSesion();
+        var res = await EnviarAsync(HttpMethod.Post, Rutas.Login,
+            Json(new { correoOUsuario = usuario, clave = clave }), autenticada: false);
         if (!res.Exito) return res;
 
-        var data = JObject.Parse(res.Contenido);
-        Token = data["token"]?.ToString();
+        JObject data;
+        try { data = JObject.Parse(res.Contenido); }
+        catch (JsonException) { return Fallo(res, "La API respondió al login con un formato inesperado."); }
+
+        var token = data["token"]?.ToString();
+        if (string.IsNullOrEmpty(token)) return Fallo(res, "La API respondió sin token.");
+
+        Token = token;
+        TokenExpiraUtc = LeerExpiracion(token);
         // El rol se normaliza a mayúsculas (ADMIN / DOCENTE / ESTUDIANTE).
         Rol = data["usuario"]?["rol"]?.ToString()?.Trim().ToUpperInvariant();
         NombreUsuario = data["usuario"]?["nombreCompleto"]?.ToString();
         UsuarioId = data["usuario"]?["id"]?.Value<int?>() ?? 0;
-
-        if (string.IsNullOrEmpty(Token))
-        {
-            res.Exito = false;
-            res.Mensaje = "La API respondió sin token.";
-        }
+        res.Contenido = ""; // el cuerpo trae el token: no lo dejamos en el resultado
         return res;
     }
 
-    // ---- GET genérico ---- devuelve el JSON crudo de cualquier endpoint
-    public static async Task<string> GetAsync(string ruta)
+    private static ApiResult Fallo(ApiResult res, string mensaje)
     {
-        UsarToken();
-        var resp = await _http.GetAsync($"{BaseUrl}/{ruta}");
-        return await resp.Content.ReadAsStringAsync();
+        CerrarSesion();
+        res.Exito = false;
+        res.Contenido = "";
+        res.Mensaje = mensaje;
+        return res;
     }
 
-    // ---- GET con detalle ---- igual que GetAsync pero informa éxito, código y mensaje
-    // para poder mostrar el error real en pantalla cuando algo falla.
-    public static async Task<ApiResult> GetResultAsync(string ruta)
+    // Borra todos los datos de la sesión en memoria (token incluido).
+    public static void CerrarSesion()
     {
-        UsarToken();
-        return await ResultadoAsync(await _http.GetAsync($"{BaseUrl}/{ruta}"));
+        Token = null;
+        TokenExpiraUtc = null;
+        Rol = null;
+        NombreUsuario = null;
+        UsuarioId = 0;
     }
 
-    // ---- POST genérico ---- manda 'datos' como JSON con el token y devuelve
-    // si tuvo éxito, el código de estado y el mensaje que responda la API.
-    public static async Task<ApiResult> PostAsync(string ruta, object datos)
-    {
-        UsarToken();
-        return await ResultadoAsync(await _http.PostAsync($"{BaseUrl}/{ruta}", Json(datos)));
-    }
+    // ---- Estado del servidor ---- GET api/health (sin token).
+    public static Task<ApiResult> ComprobarServidorAsync() =>
+        EnviarAsync(HttpMethod.Get, Rutas.Health, null, autenticada: false);
+
+    // ---- GET con detalle ---- informa éxito, código y mensaje.
+    public static Task<ApiResult> GetResultAsync(string ruta) =>
+        EnviarAsync(HttpMethod.Get, ruta, null);
+
+    // ---- POST genérico ---- manda 'datos' como JSON con el token.
+    public static Task<ApiResult> PostAsync(string ruta, object datos) =>
+        EnviarAsync(HttpMethod.Post, ruta, Json(datos));
 
     // ---- PUT genérico ---- actualiza un recurso con el token.
-    public static async Task<ApiResult> PutAsync(string ruta, object datos)
-    {
-        UsarToken();
-        return await ResultadoAsync(await _http.PutAsync($"{BaseUrl}/{ruta}", Json(datos)));
-    }
+    public static Task<ApiResult> PutAsync(string ruta, object datos) =>
+        EnviarAsync(HttpMethod.Put, ruta, Json(datos));
 
     // ---- PATCH genérico ---- para cambios parciales (p. ej. cambiar el estado).
     // 'datos' es opcional; muchos PATCH usan solo query params en la ruta.
-    public static async Task<ApiResult> PatchAsync(string ruta, object? datos = null)
-    {
-        UsarToken();
-        var contenido = datos is null
+    public static Task<ApiResult> PatchAsync(string ruta, object? datos = null) =>
+        EnviarAsync(HttpMethod.Patch, ruta, datos is null
             ? new StringContent("{}", Encoding.UTF8, "application/json")
-            : Json(datos);
-        return await ResultadoAsync(await _http.PatchAsync($"{BaseUrl}/{ruta}", contenido));
-    }
+            : Json(datos));
 
     // ---- DELETE genérico ---- elimina un recurso con el token.
-    public static async Task<ApiResult> DeleteAsync(string ruta)
+    public static Task<ApiResult> DeleteAsync(string ruta) =>
+        EnviarAsync(HttpMethod.Delete, ruta, null);
+
+    // Todas las llamadas pasan por aquí: pone el token en ESTA petición (no en el cliente
+    // compartido), convierte los fallos de red en un resultado con Codigo = 0 y detecta
+    // la sesión vencida (token caducado o 401).
+    private static async Task<ApiResult> EnviarAsync(HttpMethod metodo, string ruta, HttpContent? contenido,
+        bool autenticada = true)
     {
-        UsarToken();
-        return await ResultadoAsync(await _http.DeleteAsync($"{BaseUrl}/{ruta}"));
+        if (autenticada && (Token is null || SesionVencida()))
+        {
+            AvisarSesionExpirada();
+            return ApiResult.SesionNoValida();
+        }
+
+        using var peticion = new HttpRequestMessage(metodo, $"{BaseUrl}/{ruta}") { Content = contenido };
+        if (autenticada) peticion.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+
+        try
+        {
+            using var resp = await _http.SendAsync(peticion);
+            var res = await ResultadoAsync(resp);
+            if (autenticada && res.Codigo == 401)
+            {
+                AvisarSesionExpirada();
+                return ApiResult.SesionNoValida();
+            }
+            return res;
+        }
+        catch (TaskCanceledException)
+        {
+            return ApiResult.SinConexion($"La API ({Servidor}) no respondió a tiempo. Inténtalo de nuevo en unos segundos.");
+        }
+        catch (HttpRequestException)
+        {
+            return ApiResult.SinConexion($"No se pudo conectar con la API ({Servidor}). Verifica que esté en ejecución y que tengas conexión.");
+        }
+    }
+
+    private static bool SesionVencida() => TokenExpiraUtc is DateTime expira && DateTime.UtcNow >= expira;
+
+    private static void AvisarSesionExpirada()
+    {
+        if (Token is null) return; // ya se avisó (o no había sesión)
+        CerrarSesion();
+        SesionExpirada?.Invoke();
+    }
+
+    // Lee el claim "exp" del JWT (sin validarlo: eso lo hace la API) para saber cuándo vence.
+    private static DateTime? LeerExpiracion(string token)
+    {
+        try
+        {
+            var partes = token.Split('.');
+            if (partes.Length < 2) return null;
+            var payload = partes[1].Replace('-', '+').Replace('_', '/');
+            payload = payload.PadRight(payload.Length + (4 - payload.Length % 4) % 4, '=');
+            var json = JObject.Parse(Encoding.UTF8.GetString(Convert.FromBase64String(payload)));
+            var exp = json["exp"]?.Value<long?>();
+            return exp is null ? null : DateTimeOffset.FromUnixTimeSeconds(exp.Value).UtcDateTime;
+        }
+        catch (Exception ex) when (ex is FormatException or JsonException or ArgumentException)
+        {
+            return null;
+        }
     }
 
     private static StringContent Json(object datos) =>
@@ -203,15 +274,51 @@ public static class ApiService
         return string.IsNullOrWhiteSpace(valor) ? null : valor;
     }
 
+    // Texto corto y de una sola línea: así no se muestran trazas de excepción del servidor.
     private static bool EsTextoCorto(string body) =>
-        !string.IsNullOrWhiteSpace(body) && body.Length <= 500 && !body.TrimStart().StartsWith("<");
+        !string.IsNullOrWhiteSpace(body) && body.Length <= 300 && !body.TrimStart().StartsWith("<")
+        && !body.Trim().Contains('\n');
 }
 
-// Resultado de una llamada a la API, con lo necesario para depurar en pantalla.
+// Resultado de una llamada a la API.
 public class ApiResult
 {
     public bool Exito { get; set; }
+    // Código HTTP; 0 = no hubo respuesta (sin conexión o tiempo agotado).
     public int Codigo { get; set; }
     public string Contenido { get; set; } = "";
     public string Mensaje { get; set; } = "";
+
+    public bool SinRespuesta => Codigo == 0;
+
+    // 404 sin cuerpo = la ruta no existe en la API (un 404 «de negocio» trae { mensaje }).
+    public bool EndpointInexistente => Codigo == 404 && string.IsNullOrWhiteSpace(Contenido);
+
+    public static ApiResult SinConexion(string mensaje) => new() { Codigo = 0, Mensaje = mensaje };
+
+    public static ApiResult SesionNoValida() =>
+        new() { Codigo = 401, Mensaje = "Tu sesión expiró o ya no es válida. Vuelve a iniciar sesión." };
+
+    // Explicación para el usuario, según el código de la respuesta.
+    public string Explicacion() => Codigo switch
+    {
+        0 => Mensaje,
+        401 => "Tu sesión expiró o ya no es válida. Vuelve a iniciar sesión.",
+        403 => "Tu usuario no tiene permiso para esta acción.",
+        404 when EndpointInexistente => "La API conectada no tiene este servicio (404).",
+        >= 500 => "El servidor tuvo un error interno. Suele pasar cuando el dato ya existe o "
+                  + "está relacionado con otros registros.",
+        _ => string.IsNullOrWhiteSpace(Mensaje) ? "Respuesta inesperada de la API." : Mensaje
+    };
+
+    // Texto de error listo para una etiqueta de estado: «✗ No se pudo <accion>. <explicación> (HTTP n)».
+    public string Error(string accion)
+    {
+        var codigo = Codigo > 0 ? $" (HTTP {Codigo})" : "";
+        return $"✗ No se pudo {accion}. {Explicacion()}{codigo}";
+    }
+
+    // Mensaje de éxito de la API o, si no trae uno, el texto por defecto.
+    public string Ok(string porDefecto) =>
+        $"✓ {(string.IsNullOrWhiteSpace(Mensaje) ? porDefecto : Mensaje)}";
 }

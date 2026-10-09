@@ -137,8 +137,8 @@
                         </Grid>
                     </Border>
 
-                    <!-- Tarjetas de resumen -->
-                    <StackPanel x:Name="panelStats" Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,16"/>
+                    <!-- Tarjetas de resumen (ADMIN: conteos reales calculados de las listas de la API) -->
+                    <UniformGrid x:Name="panelStats" Grid.Row="1" Rows="1" Margin="0,0,0,16"/>
 
                     <!-- ===== VISTA GENÉRICA (DOCENTE / ESTUDIANTE / otros roles) ===== -->
                     <Grid x:Name="panelGenerico" Grid.Row="2">
@@ -509,7 +509,7 @@
                                             <TextBlock Text="Se crea activa; puedes desactivarla al editarla."
                                                        Style="{StaticResource SubtituloTarjeta}"/>
                                             <TextBlock Text="Nombre" Style="{StaticResource Etiqueta}"/>
-                                            <TextBox x:Name="txtNuevaMateria" Tag="Ej.: Matemáticas"/>
+                                            <TextBox x:Name="txtNuevaMateria" Tag="Ej.: Matemáticas" MaxLength="80"/>
                                             <Button x:Name="btnCrear" Content="＋  Crear materia" Margin="0,18,0,0"
                                                     Style="{StaticResource BtnPrimario}" Click="CrearMateria_Click"/>
                                         </StackPanel>
@@ -549,20 +549,19 @@
                                                        Margin="0,0,0,14"/>
 
                                             <TextBlock Text="Nombre completo" Style="{StaticResource Etiqueta}"/>
-                                            <TextBox x:Name="txtNombreCompleto" Tag="Ej.: Ana Pérez" Margin="0,0,0,10"/>
+                                            <TextBox x:Name="txtNombreCompleto" Tag="Ej.: Ana Pérez" Margin="0,0,0,10"
+                                                     MaxLength="150"/>
 
                                             <TextBlock Text="Usuario o correo" Style="{StaticResource Etiqueta}"/>
-                                            <TextBox x:Name="txtCorreoUsuario" Tag="usuario o correo" Margin="0,0,0,10"/>
+                                            <TextBox x:Name="txtCorreoUsuario" Tag="usuario o correo" Margin="0,0,0,10"
+                                                     MaxLength="120"/>
 
-                                            <TextBlock Text="Contraseña" Style="{StaticResource Etiqueta}"/>
-                                            <PasswordBox x:Name="pwdClave" Margin="0,0,0,10"/>
+                                            <TextBlock Text="Contraseña (8 a 128 caracteres)" Style="{StaticResource Etiqueta}"/>
+                                            <PasswordBox x:Name="pwdClave" Margin="0,0,0,10" MaxLength="128"/>
 
+                                            <!-- Los roles (id y código) se cargan de GET api/roles. -->
                                             <TextBlock Text="Rol" Style="{StaticResource Etiqueta}"/>
-                                            <ComboBox x:Name="cmbRol" SelectedIndex="2" Margin="0,0,0,16">
-                                                <ComboBoxItem>ADMIN</ComboBoxItem>
-                                                <ComboBoxItem>DOCENTE</ComboBoxItem>
-                                                <ComboBoxItem>ESTUDIANTE</ComboBoxItem>
-                                            </ComboBox>
+                                            <ComboBox x:Name="cmbRol" Margin="0,0,0,16"/>
 
                                             <Button x:Name="btnCrearUsuario" Content="＋  Crear usuario"
                                                     Style="{StaticResource BtnPrimario}" Click="CrearUsuario_Click"/>
@@ -585,6 +584,103 @@
                                         <TextBlock x:Name="lblUsuariosEstado" Style="{StaticResource TextoEstado}"/>
                                     </Border>
                                 </Grid>
+                            </Grid>
+                        </TabItem>
+
+                        <!-- ===== Estudiantes: baja / reactivación y sección (lista de api/Usuarios por rol) ===== -->
+                        <TabItem Header="Estudiantes">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="*"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Grid Margin="0,0,0,12">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="180"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBox x:Name="txtBuscarEstAdmin" Tag="🔍  Buscar estudiante por nombre o usuario…"
+                                             TextChanged="BuscarEstAdmin_Changed"/>
+                                    <ComboBox x:Name="cmbFiltroEstAdmin" Grid.Column="1" Margin="10,0,0,0"
+                                              SelectedIndex="0" SelectionChanged="FiltroEstAdmin_Changed">
+                                        <ComboBoxItem>Todos</ComboBoxItem>
+                                        <ComboBoxItem>Activos</ComboBoxItem>
+                                        <ComboBoxItem>De baja</ComboBoxItem>
+                                    </ComboBox>
+                                </Grid>
+                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                    <ItemsControl x:Name="listaEstAdmin" Margin="0,0,6,0"/>
+                                </ScrollViewer>
+                                <Border Grid.Row="2" Style="{StaticResource CajaEstado}">
+                                    <TextBlock x:Name="lblEstAdminEstado" Style="{StaticResource TextoEstado}"/>
+                                </Border>
+                            </Grid>
+                        </TabItem>
+
+                        <!-- ===== Docentes: baja / reactivación y sus clases ===== -->
+                        <TabItem x:Name="tabDocentes" Header="Docentes">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Lista de docentes -->
+                                <Grid Grid.Column="0" Margin="0,0,10,0">
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+                                    <TextBox x:Name="txtBuscarDocente" Tag="🔍  Buscar docente por nombre o usuario…"
+                                             TextChanged="BuscarDocente_Changed" Margin="0,0,0,12"/>
+                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                                        <ItemsControl x:Name="listaDocentes" Margin="0,0,6,0"/>
+                                    </ScrollViewer>
+                                    <Border Grid.Row="2" Style="{StaticResource CajaEstado}">
+                                        <TextBlock x:Name="lblDocentesEstado" Style="{StaticResource TextoEstado}"/>
+                                    </Border>
+                                </Grid>
+
+                                <!-- Clases del docente elegido (api/admin/asignaciones-docente) -->
+                                <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" Margin="10,0,0,0">
+                                    <ContentControl Style="{StaticResource Tarjeta}" Padding="20" Margin="0,0,6,14">
+                                        <StackPanel>
+                                            <TextBlock Text="Clases del docente" Style="{StaticResource TituloTarjeta}"/>
+                                            <TextBlock x:Name="lblClasesDocenteInfo"
+                                                       Text="Elige un docente (botón «Clases») para ver y gestionar sus clases."
+                                                       Style="{StaticResource SubtituloTarjeta}" Margin="0,3,0,0"/>
+
+                                            <StackPanel x:Name="panelClasesDocente" Visibility="Collapsed" Margin="0,14,0,0">
+                                                <TextBlock Text="Materia" Style="{StaticResource Etiqueta}"/>
+                                                <ComboBox x:Name="cmbClaseMateria" MinHeight="42" Margin="0,0,0,8"/>
+                                                <Grid Margin="0,0,0,14">
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel Grid.Column="0" Margin="0,0,5,0">
+                                                        <TextBlock Text="Sección" Style="{StaticResource Etiqueta}"/>
+                                                        <ComboBox x:Name="cmbClaseSeccion" MinHeight="42"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Margin="5,0,0,0">
+                                                        <TextBlock Text="Período académico" Style="{StaticResource Etiqueta}"/>
+                                                        <ComboBox x:Name="cmbClasePeriodo" MinHeight="42"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                                <Button x:Name="btnAgregarClase" Content="＋  Asignar clase"
+                                                        Style="{StaticResource BtnPrimario}" Click="AgregarClase_Click"/>
+
+                                                <Border Height="1.5" Background="{StaticResource BordeBrush}" Margin="0,18,0,14"/>
+                                                <ItemsControl x:Name="listaClasesDocente"/>
+                                                <Border Style="{StaticResource CajaEstado}">
+                                                    <TextBlock x:Name="lblClasesDocenteEstado" Style="{StaticResource TextoEstado}"/>
+                                                </Border>
+                                            </StackPanel>
+                                        </StackPanel>
+                                    </ContentControl>
+                                </ScrollViewer>
                             </Grid>
                         </TabItem>
 
@@ -614,8 +710,8 @@
                                                     <ColumnDefinition Width="82"/>
                                                     <ColumnDefinition Width="Auto"/>
                                                 </Grid.ColumnDefinitions>
-                                                <TextBox x:Name="txtNuevoGrado" Tag="Nombre del grado"/>
-                                                <TextBox x:Name="txtOrdenGrado" Grid.Column="1" Text="1" Tag="Orden"
+                                                <TextBox x:Name="txtNuevoGrado" Tag="Nombre del grado" MaxLength="50"/>
+                                                <TextBox x:Name="txtOrdenGrado" Grid.Column="1" Text="1" Tag="Orden" MaxLength="3"
                                                          Margin="8,0,0,0" ToolTip="Orden (0-255). Déjalo vacío si no aplica."/>
                                                 <Button x:Name="btnCrearGrado" Grid.Column="2" Content="＋ Crear"
                                                         Padding="18,0" Margin="8,0,0,0"
@@ -653,7 +749,7 @@
                                                         <ColumnDefinition Width="*"/>
                                                         <ColumnDefinition Width="Auto"/>
                                                     </Grid.ColumnDefinitions>
-                                                    <TextBox x:Name="txtNuevaSeccion" Tag="Ej.: A"/>
+                                                    <TextBox x:Name="txtNuevaSeccion" Tag="Ej.: A" MaxLength="30"/>
                                                     <Button x:Name="btnCrearSeccion" Grid.Column="1" Content="＋ Crear"
                                                             Padding="18,0" Margin="8,0,0,0"
                                                             Style="{StaticResource BtnPrimario}" Click="CrearSeccion_Click"/>
@@ -707,7 +803,8 @@
                                                        Style="{StaticResource SubtituloTarjeta}"/>
 
                                             <TextBlock Text="Nombre" Style="{StaticResource Etiqueta}"/>
-                                            <TextBox x:Name="txtNombrePeriodo" Tag="Ej.: Año lectivo 2026" Margin="0,0,0,12"/>
+                                            <TextBox x:Name="txtNombrePeriodo" Tag="Ej.: Año lectivo 2026" Margin="0,0,0,12"
+                                                     MaxLength="50"/>
 
                                             <Grid Margin="0,0,0,14">
                                                 <Grid.ColumnDefinitions>
@@ -716,11 +813,11 @@
                                                 </Grid.ColumnDefinitions>
                                                 <StackPanel Grid.Column="0" Margin="0,0,5,0">
                                                     <TextBlock Text="Fecha inicio" Style="{StaticResource Etiqueta}"/>
-                                                    <TextBox x:Name="txtFechaInicio" Tag="AAAA-MM-DD"/>
+                                                    <TextBox x:Name="txtFechaInicio" Tag="AAAA-MM-DD" MaxLength="10"/>
                                                 </StackPanel>
                                                 <StackPanel Grid.Column="1" Margin="5,0,0,0">
                                                     <TextBlock Text="Fecha fin" Style="{StaticResource Etiqueta}"/>
-                                                    <TextBox x:Name="txtFechaFin" Tag="AAAA-MM-DD"/>
+                                                    <TextBox x:Name="txtFechaFin" Tag="AAAA-MM-DD" MaxLength="10"/>
                                                 </StackPanel>
                                             </Grid>
 
@@ -756,10 +853,14 @@
                             <TabItem.Header>
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock Text="Asignaciones" VerticalAlignment="Center"/>
+                                    <!-- Aviso compacto: se muestra si la API no tiene los endpoints
+                                         de asignaciones (404); el detalle va en el ToolTip. -->
                                     <Border x:Name="pillAsignaciones" Background="White" CornerRadius="9"
                                             BorderBrush="{StaticResource CoralBrush}" BorderThickness="1"
-                                            Padding="7,1" Margin="7,0,0,0" VerticalAlignment="Center">
-                                        <TextBlock Text="no disponible" FontSize="10.5" FontWeight="ExtraBold"
+                                            Width="18" Height="18" Margin="7,0,0,0" VerticalAlignment="Center"
+                                            ToolTip="No disponible en la API conectada">
+                                        <TextBlock Text="!" FontSize="11" FontWeight="ExtraBold"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
                                                    Foreground="{StaticResource CoralBrush}"/>
                                     </Border>
                                 </StackPanel>

@@ -29,6 +29,28 @@ public partial class DashboardWindow : Window
     // Datos ya cargados de usuarios y materias, para filtrar en vivo sin re-llamar a la API.
     private JArray? _usuariosData;
     private JArray? _materiasData;
+    // Grados, secciones (todas) y períodos ya cargados: para validar duplicados, el resumen y los combos.
+    private JArray? _gradosData;
+    private JArray? _seccionesData;
+    private JArray? _periodosData;
+    // Asignaciones docente ya cargadas (pestañas Asignaciones y Docentes, y el resumen).
+    private JArray? _asignacionesData;
+    // Roles reales de la API (GET api/roles): rolId -> (código, nombre). No se suponen los ids.
+    private readonly Dictionary<int, (string codigo, string nombre)> _roles = new();
+
+    // ¿Existen en la API los endpoints de asignaciones? null = aún no se sabe; false = la ruta
+    // respondió 404 (no existe en la API conectada) y la función se marca como «no disponible».
+    private bool? _asigDocenteDisponible;
+    private bool? _estSeccionDisponible;
+
+    // Operaciones en curso sobre una fila (baja, reactivación…), para no repetirlas con doble clic.
+    private readonly HashSet<string> _enCurso = new();
+    // El resumen del panel principal se pinta cuando termina la carga inicial.
+    private bool _cargaInicialHecha;
+    // Ya se volvió al login (cierre de sesión o sesión expirada).
+    private bool _sesionTerminada;
+    // Docente elegido en la pestaña Docentes para ver y gestionar sus clases.
+    private int _docenteSeleccionadoId;
 
     // ⚠️ ID del estado "aprobada/publicada" del catálogo EstadoContenido.
     // No pude confirmarlo contra la base (no hay seed en el código). Ajusta este
@@ -49,13 +71,12 @@ public partial class DashboardWindow : Window
     // Evita lanzar dos cargas de la pestaña Asignaciones a la vez.
     private bool _cargandoAsignaciones;
 
-    // Roles del sistema: la posición + 1 es el rolId (ADMIN=1, DOCENTE=2, ESTUDIANTE=3).
-    private static readonly string[] Roles = { "ADMIN", "DOCENTE", "ESTUDIANTE" };
-
     public DashboardWindow()
     {
         InitializeComponent();
         ColorearMensajesDeEstado();
+        ApiService.SesionExpirada += AlExpirarSesion;
+        Closed += (_, _) => ApiService.SesionExpirada -= AlExpirarSesion;
         Cargar();
     }
 
@@ -65,16 +86,21 @@ public partial class DashboardWindow : Window
     }
     private void Cerrar_Click(object sender, RoutedEventArgs e) => Application.Current.Shutdown();
 
-    private void CerrarSesion_Click(object sender, RoutedEventArgs e)
-    {
-        
-        ApiService.Token = null;
-        ApiService.Rol = null;
-        ApiService.NombreUsuario = null;
-        ApiService.UsuarioId = 0;
+    private void CerrarSesion_Click(object sender, RoutedEventArgs e) => VolverAlLogin(null);
 
-        var login = new MainWindow();
-        login.Show();
+    // El token venció o la API respondió 401: se vuelve al login con el aviso.
+    // Se difiere para no cerrar la ventana en medio de la llamada que lo detectó.
+    private void AlExpirarSesion() =>
+        Dispatcher.BeginInvoke(() =>
+            VolverAlLogin("Tu sesión expiró o ya no es válida. Vuelve a iniciar sesión para continuar."));
+
+    private void VolverAlLogin(string? aviso)
+    {
+        if (_sesionTerminada) return;
+        _sesionTerminada = true;
+        ApiService.CerrarSesion();
+        foreach (var dialogo in OwnedWindows.Cast<Window>().ToList()) dialogo.Close();
+        new MainWindow(aviso).Show();
         Close();
     }
 
@@ -90,6 +116,8 @@ public partial class DashboardWindow : Window
         // Por defecto se muestra la vista genérica; el ADMIN usa su propia vista.
         panelGenerico.Visibility = Visibility.Visible;
         panelAdmin.Visibility = Visibility.Collapsed;
+        // Las tarjetas de stats de los otros roles ocupan solo su ancho; las del ADMIN se reparten la fila.
+        panelStats.HorizontalAlignment = HorizontalAlignment.Left;
 
         // Asignaciones: formulario oculto y nota visible mientras la API no tenga el endpoint.
         panelAsignacionesForm.Visibility = AsignacionesDisponibles ? Visibility.Visible : Visibility.Collapsed;
@@ -104,15 +132,23 @@ public partial class DashboardWindow : Window
                 // El ADMIN gestiona materias y usuarios en su vista con secciones.
                 panelGenerico.Visibility = Visibility.Collapsed;
                 panelAdmin.Visibility = Visibility.Visible;
-                await RecargarMaterias();
+                MostrarResumenCargando();
+                // Roles primero: con ellos se sabe quién es estudiante o docente.
+                await RecargarRoles();
                 await RecargarUsuarios();
+                await RecargarMaterias();
                 await RecargarGrados();
+                await RecargarSecciones();
                 await RecargarPeriodos();
-                // Asignaciones se carga al abrir su pestaña (ver PanelAdmin_SelectionChanged).
-                Stat("Gestión", AsignacionesDisponibles
-                    ? "Usuarios · Materias · Grados · Períodos · Asignaciones"
-                    : "Usuarios · Materias · Grados · Períodos");
-                Stat("Rol", "ADMIN");
+                // Con las listas cargadas, las asignaciones ya pueden mostrar nombres.
+                MapearNombres();
+                if (AsignacionesDisponibles)
+                {
+                    await RecargarAsignaciones();
+                    await RecargarEstudiantesSeccion();
+                }
+                _cargaInicialHecha = true;
+                ActualizarResumen();
                 break;
 
             case "DOCENTE":
@@ -141,6 +177,150 @@ public partial class DashboardWindow : Window
                 await CargarLista(listaDatos, lblEstado, "roles", "nombre", "codigo");
                 break;
         }
+    }
+
+    // ===== PANEL PRINCIPAL (ADMIN) =====
+    // La API no tiene endpoint de estadísticas para el ADMIN: cada número se calcula con
+    // las listas que ya devuelven los endpoints (Usuarios por rol, Materias, Secciones y
+    // asignaciones-docente). Si una lista no se pudo cargar, la tarjeta lo dice; no se inventa.
+
+    private static readonly (string titulo, Tono tono, string icono)[] TarjetasResumen =
+    {
+        ("Estudiantes", Tono.Teal, "★"),
+        ("Docentes", Tono.Morado, "◆"),
+        ("Materias", Tono.Amarillo, "●"),
+        ("Secciones", Tono.Coral, "▲"),
+        ("Clases", Tono.Verde, "■")
+    };
+
+    private void MostrarResumenCargando()
+    {
+        panelStats.HorizontalAlignment = HorizontalAlignment.Stretch;
+        panelStats.Children.Clear();
+        foreach (var (titulo, tono, icono) in TarjetasResumen)
+            panelStats.Children.Add(TarjetaResumen(titulo, "…", "Cargando…", tono, icono));
+    }
+
+    // Recalcula las tarjetas con lo que hay cargado. Se llama tras cada recarga de listas.
+    private void ActualizarResumen()
+    {
+        if (!_cargaInicialHecha || ApiService.Rol != "ADMIN") return;
+
+        var valores = new (string valor, string detalle, string? ayuda)[]
+        {
+            ResumenUsuarios("ESTUDIANTE"),
+            ResumenUsuarios("DOCENTE"),
+            ResumenLista(_materiasData, "activa", "activa(s)"),
+            ResumenLista(_seccionesData, "activa", "activa(s)"),
+            ResumenClases()
+        };
+
+        panelStats.Children.Clear();
+        for (int i = 0; i < TarjetasResumen.Length; i++)
+        {
+            var (titulo, tono, icono) = TarjetasResumen[i];
+            var (valor, detalle, ayuda) = valores[i];
+            panelStats.Children.Add(TarjetaResumen(titulo, valor, detalle, tono, icono, ayuda));
+        }
+    }
+
+    // Estudiantes o docentes: usuarios de la lista con ese rol (todos) y cuántos están activos.
+    private (string, string, string?) ResumenUsuarios(string rol)
+    {
+        if (_usuariosData is null) return ("—", "Error al cargar", "No se pudo cargar GET api/Usuarios.");
+        var lista = _usuariosData.Where(u => EsRol(u, rol)).ToList();
+        int activos = lista.Count(u => u["activo"]?.Value<bool?>() ?? false);
+        return (lista.Count.ToString(), $"{activos} activo(s)",
+            $"Usuarios con rol {rol} en GET api/Usuarios: {lista.Count} ({activos} activos, {lista.Count - activos} de baja).");
+    }
+
+    private static (string, string, string?) ResumenLista(JArray? datos, string campoActivo, string textoActivos)
+    {
+        if (datos is null) return ("—", "Error al cargar", "No se pudo cargar la lista de la API.");
+        int activos = datos.Count(d => d[campoActivo]?.Value<bool?>() ?? false);
+        return (datos.Count.ToString(), $"{activos} {textoActivos}", null);
+    }
+
+    // Clases = asignaciones docente → materia + sección + período (api/admin/asignaciones-docente).
+    private (string, string, string?) ResumenClases()
+    {
+        if (_asigDocenteDisponible == false)
+            return ("—", "No disponible",
+                $"No disponible: la API conectada no tiene api/{Rutas.AsignacionesDocente} (responde 404), así que no hay datos de clases.");
+        if (_asignacionesData is null) return ("—", "Error al cargar", "No se pudo cargar la lista de asignaciones.");
+        // Si la API informa si cada clase está activa, se muestra; si no, solo el total.
+        var conCampo = _asignacionesData.Where(a => a["activa"]?.Type == JTokenType.Boolean).ToList();
+        var detalle = conCampo.Count == _asignacionesData.Count && conCampo.Count > 0
+            ? $"{conCampo.Count(a => a["activa"]!.Value<bool>())} activa(s)"
+            : "asignadas a docentes";
+        return (_asignacionesData.Count.ToString(), detalle, null);
+    }
+
+    // Tarjeta del resumen: círculo de color, título, número grande y detalle.
+    private ContentControl TarjetaResumen(string titulo, string valor, string detalle, Tono tono, string icono,
+        string? ayuda = null)
+    {
+        var (fuerte, suave) = Ui.Colores(tono);
+        var circulo = new Border
+        {
+            Width = 36,
+            Height = 36,
+            CornerRadius = new CornerRadius(18),
+            Background = suave,
+            VerticalAlignment = VerticalAlignment.Top,
+            Child = new TextBlock
+            {
+                Text = icono,
+                FontSize = 15,
+                Foreground = fuerte,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            }
+        };
+
+        bool esNumero = valor.Length > 0 && valor.All(char.IsDigit);
+        bool alerta = valor == "—"; // no se pudo cargar o no disponible: el detalle va en coral
+        var textos = new StackPanel { Margin = new Thickness(10, 0, 0, 0) };
+        textos.Children.Add(new TextBlock
+        {
+            Text = titulo.ToUpper(),
+            FontSize = 11,
+            FontWeight = FontWeights.ExtraBold,
+            Foreground = Paleta.Apagado,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        textos.Children.Add(new TextBlock
+        {
+            Text = valor,
+            FontSize = 22,
+            FontWeight = FontWeights.ExtraBold,
+            Foreground = esNumero ? Paleta.Navy : Paleta.Apagado,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+        textos.Children.Add(new TextBlock
+        {
+            Text = detalle,
+            FontSize = 11.5,
+            FontWeight = alerta ? FontWeights.Bold : FontWeights.Normal,
+            Foreground = alerta ? Paleta.Coral : Paleta.Apagado,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        Grid.SetColumn(textos, 1);
+        grid.Children.Add(circulo);
+        grid.Children.Add(textos);
+
+        return new ContentControl
+        {
+            Style = (Style)FindResource("Tarjeta"),
+            Padding = new Thickness(12, 10, 12, 10),
+            Margin = new Thickness(0, 0, 10, 0),
+            Content = grid,
+            ToolTip = ayuda ?? $"{titulo}: {valor} · {detalle}"
+        };
     }
 
     // Crea una tarjeta de stat arriba: blanca, con un círculo de color y el dato.
@@ -211,8 +391,7 @@ public partial class DashboardWindow : Window
             if (!res.Exito)
             {
                 destino.Items.Clear();
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                estado.Text = $"✗ Error {res.Codigo} al llamar /{ruta}: {detalle}";
+                estado.Text = res.Error($"cargar /{ruta}");
                 return;
             }
 
@@ -254,16 +433,21 @@ public partial class DashboardWindow : Window
             {
                 _materiasData = null;
                 listaMaterias.Items.Clear();
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblMateriasEstado.Text = $"✗ Error {res.Codigo} al listar materias: {detalle}";
+                lblMateriasEstado.Text = res.Error("listar materias");
                 return;
             }
             _materiasData = JArray.Parse(res.Contenido);
+            Mapear(_nombreMateria, _materiasData, it => it["nombre"]?.ToString());
             RenderMaterias(txtBuscarMateria?.Text ?? "");
         }
         catch (Exception ex)
         {
+            _materiasData = null;
             lblMateriasEstado.Text = $"✗ No se pudieron cargar las materias: {ex.Message}";
+        }
+        finally
+        {
+            ActualizarResumen();
         }
     }
 
@@ -303,17 +487,27 @@ public partial class DashboardWindow : Window
             {
                 _usuariosData = null;
                 listaUsuarios.Items.Clear();
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblUsuariosEstado.Text = $"✗ Error {res.Codigo} al listar usuarios: {detalle}";
+                listaEstAdmin.Items.Clear();
+                listaDocentes.Items.Clear();
+                lblUsuariosEstado.Text = lblEstAdminEstado.Text = lblDocentesEstado.Text = res.Error("listar usuarios");
                 return;
             }
 
             _usuariosData = JArray.Parse(res.Contenido);
+            if (_roles.Count == 0) RolesDesdeUsuarios();
+            Mapear(_nombreUsuario, _usuariosData, NombreDeUsuario);
             RenderUsuarios(txtBuscarUsuario?.Text ?? "");
+            RenderEstudiantesAdmin();
+            RenderDocentes();
         }
         catch (Exception ex)
         {
+            _usuariosData = null;
             lblUsuariosEstado.Text = $"✗ No se pudieron cargar los usuarios: {ex.Message}";
+        }
+        finally
+        {
+            ActualizarResumen();
         }
     }
 
@@ -333,9 +527,9 @@ public partial class DashboardWindow : Window
             int id = item["id"]?.Value<int>() ?? 0;
             var correo = item["correoOUsuario"]?.ToString() ?? "";
             var rol = item["rol"]?.ToString() ?? "";
-            // Si la lista no trae rolId, lo deducimos del nombre del rol para que
+            // Si la lista no trae rolId, lo deducimos del código del rol para que
             // «Editar» no cambie el rol del usuario por accidente.
-            int rolId = item["rolId"]?.Value<int?>() ?? RolIdDesdeNombre(rol);
+            int rolId = Entero(item, "rolId") ?? RolIdDeCodigo(CodigoRol(item));
             bool activo = item["activo"]?.Value<bool?>() ?? true;
             listaUsuarios.Items.Add(CrearFilaUsuario(i++, id, nombreCompleto, correo, rol, rolId, activo));
             mostrados++;
@@ -347,9 +541,71 @@ public partial class DashboardWindow : Window
 
     private void BuscarUsuario_Changed(object sender, TextChangedEventArgs e) => RenderUsuarios(txtBuscarUsuario.Text);
 
-    // "DOCENTE" -> 2, etc. Devuelve 0 si el nombre no coincide con ningún rol conocido.
-    private static int RolIdDesdeNombre(string rol) =>
-        Array.FindIndex(Roles, r => r.Equals(rol.Trim(), StringComparison.OrdinalIgnoreCase)) + 1;
+    // ===== ROLES: ids y códigos reales de GET api/roles (no se suponen) =====
+
+    private async System.Threading.Tasks.Task RecargarRoles()
+    {
+        var (datos, error) = await ObtenerListaAsync(Rutas.Roles);
+        if (datos is null)
+        {
+            // Se reintenta con los roles que traiga la lista de usuarios (ver RolesDesdeUsuarios).
+            lblUsuariosEstado.Text = error ?? "";
+            return;
+        }
+        _roles.Clear();
+        foreach (var r in datos)
+        {
+            var id = Entero(r, "id");
+            var codigo = Texto(r, "codigo");
+            if (id is null || codigo is null) continue;
+            _roles[id.Value] = (codigo.Trim().ToUpperInvariant(), Texto(r, "nombre") ?? codigo);
+        }
+        LlenarComboRoles(cmbRol, TagCombo(cmbRol) is > 0 and var elegido ? elegido : RolIdDeCodigo("ESTUDIANTE"));
+    }
+
+    // Si GET api/roles falló, se arman los roles con los (rolId, rol) que trae GET api/Usuarios.
+    private void RolesDesdeUsuarios()
+    {
+        if (_usuariosData is null) return;
+        foreach (var u in _usuariosData)
+        {
+            var id = Entero(u, "rolId");
+            var nombre = Texto(u, "rol");
+            if (id is null || nombre is null || _roles.ContainsKey(id.Value)) continue;
+            _roles[id.Value] = (NormalizarCodigoRol(nombre), nombre);
+        }
+        LlenarComboRoles(cmbRol, RolIdDeCodigo("ESTUDIANTE"));
+    }
+
+    private void LlenarComboRoles(ComboBox combo, int rolIdElegido)
+    {
+        combo.Items.Clear();
+        foreach (var (id, (codigo, _)) in _roles.OrderBy(r => r.Key))
+            combo.Items.Add(new ComboBoxItem { Content = codigo, Tag = id });
+        // Un rol que no está en la lista se conserva tal cual, para no cambiarlo sin querer.
+        if (rolIdElegido > 0 && !_roles.ContainsKey(rolIdElegido))
+            combo.Items.Add(new ComboBoxItem { Content = $"Rol #{rolIdElegido}", Tag = rolIdElegido });
+        if (!SeleccionarEnCombo(combo, rolIdElegido) && combo.Items.Count > 0) combo.SelectedIndex = 0;
+    }
+
+    // Código del rol (ADMIN / DOCENTE / ESTUDIANTE) de un usuario de la lista.
+    private string CodigoRol(JToken usuario)
+    {
+        var rolId = Entero(usuario, "rolId");
+        if (rolId.HasValue && _roles.TryGetValue(rolId.Value, out var rol)) return rol.codigo;
+        return NormalizarCodigoRol(Texto(usuario, "rol") ?? "");
+    }
+
+    // "Docente" -> "DOCENTE", "Administrador" -> "ADMIN".
+    private static string NormalizarCodigoRol(string nombre)
+    {
+        var codigo = nombre.Trim().ToUpperInvariant();
+        return codigo.StartsWith("ADMIN") ? "ADMIN" : codigo;
+    }
+
+    // Id del rol con ese código, o 0 si no se conoce.
+    private int RolIdDeCodigo(string codigo) =>
+        _roles.FirstOrDefault(r => r.Value.codigo == codigo).Key;
 
     // ===== ASIGNACIONES (ADMIN): docente -> materia + sección, estudiante -> sección =====
 
@@ -362,6 +618,8 @@ public partial class DashboardWindow : Window
         if (!ReferenceEquals(e.OriginalSource, panelAdmin) || tabAsignaciones is null) return;
         if (AsignacionesDisponibles && ReferenceEquals(panelAdmin.SelectedItem, tabAsignaciones))
             await CargarPestanaAsignaciones();
+        else if (ReferenceEquals(panelAdmin.SelectedItem, tabDocentes))
+            LlenarCombosClaseDocente();
     }
 
     private async System.Threading.Tasks.Task CargarPestanaAsignaciones()
@@ -370,12 +628,26 @@ public partial class DashboardWindow : Window
         _cargandoAsignaciones = true;
         try
         {
-            var (errUsuarios, errMaterias, errSecciones, errPeriodos) = await CargarCombosAsignacion();
+            // Se refrescan las listas (y con ellas las demás pestañas y el resumen) para
+            // incluir lo creado en otras pestañas; los combos se llenan con esas mismas listas.
+            await RecargarUsuarios();
+            await RecargarMaterias();
+            await RecargarSecciones();
+            await RecargarPeriodos();
+            LlenarCombosAsignacion();
+            MapearNombres();
             await RecargarAsignaciones();
             await RecargarEstudiantesSeccion();
             // Los errores de los combos se muestran después, para que la recarga de las listas no los tape.
-            MostrarErroresCombos(lblAsignacionesEstado, new[] { errUsuarios, errMaterias, errSecciones, errPeriodos });
-            MostrarErroresCombos(lblEstudiantesEstado, new[] { errUsuarios, errSecciones });
+            MostrarErroresCombos(lblAsignacionesEstado, new[]
+            {
+                ErrorLista(_usuariosData, "usuarios"), ErrorLista(_materiasData, "materias"),
+                ErrorLista(_seccionesData, "secciones"), ErrorLista(_periodosData, "períodos")
+            });
+            MostrarErroresCombos(lblEstudiantesEstado, new[]
+            {
+                ErrorLista(_usuariosData, "usuarios"), ErrorLista(_seccionesData, "secciones")
+            });
         }
         finally
         {
@@ -383,29 +655,41 @@ public partial class DashboardWindow : Window
         }
     }
 
-    // Trae usuarios, materias, secciones y períodos (una vez cada uno), llena los combos de
-    // las dos asignaciones y los mapas id -> nombre. Devuelve el error de cada lista, si lo hubo.
-    private async System.Threading.Tasks.Task<(string? usuarios, string? materias, string? secciones, string? periodos)>
-        CargarCombosAsignacion()
+    private static string? ErrorLista(JArray? datos, string nombre) =>
+        datos is null ? $"✗ No se pudo cargar la lista de {nombre}; revisa su pestaña." : null;
+
+    // Llena los combos de las dos asignaciones con las listas ya cargadas. Para asignar
+    // solo se ofrecen docentes, materias y secciones activos; los períodos inactivos se marcan.
+    private void LlenarCombosAsignacion()
     {
-        var (usuarios, errUsuarios) = await ObtenerListaAsync(Rutas.Usuarios);
-        var (materias, errMaterias) = await ObtenerListaAsync(Rutas.Materias);
-        var (secciones, errSecciones) = await ObtenerListaAsync(Rutas.Secciones);
-        var (periodos, errPeriodos) = await ObtenerListaAsync(Rutas.PeriodosAcademicos);
+        LlenarCombo(cmbAsigDocente, _usuariosData,
+            it => EsRol(it, "DOCENTE") && Activo(it, "activo") ? NombreDeUsuario(it) : null);
+        LlenarCombo(cmbAsigMateria, _materiasData, it => Activo(it, "activa") ? it["nombre"]?.ToString() : null);
+        LlenarCombo(cmbAsigSeccion, _seccionesData, it => Activo(it, "activa") ? TextoSeccion(it) : null);
+        LlenarCombo(cmbAsigPeriodo, _periodosData, TextoPeriodo);
+        LlenarCombo(cmbEstEstudiante, _usuariosData, it => EsRol(it, "ESTUDIANTE")
+            ? NombreDeUsuario(it) + (Activo(it, "activo") ? "" : " (de baja)")
+            : null);
+        LlenarCombo(cmbEstSeccion, _seccionesData, it => Activo(it, "activa") ? TextoSeccion(it) : null);
+    }
 
-        LlenarCombo(cmbAsigDocente, usuarios, it => EsRol(it, "DOCENTE") ? NombreDeUsuario(it) : null);
-        LlenarCombo(cmbAsigMateria, materias, it => it["nombre"]?.ToString());
-        LlenarCombo(cmbAsigSeccion, secciones, TextoSeccion);
-        LlenarCombo(cmbAsigPeriodo, periodos, it => it["nombre"]?.ToString());
-        LlenarCombo(cmbEstEstudiante, usuarios, it => EsRol(it, "ESTUDIANTE") ? NombreDeUsuario(it) : null);
-        LlenarCombo(cmbEstSeccion, secciones, TextoSeccion);
+    // Mapas id -> nombre para mostrar las asignaciones aunque la API solo devuelva ids.
+    private void MapearNombres()
+    {
+        Mapear(_nombreUsuario, _usuariosData, NombreDeUsuario);
+        Mapear(_nombreMateria, _materiasData, it => it["nombre"]?.ToString());
+        Mapear(_seccionesNombre, _seccionesData, TextoSeccion);
+        Mapear(_nombrePeriodo, _periodosData, it => it["nombre"]?.ToString());
+    }
 
-        Mapear(_nombreUsuario, usuarios, NombreDeUsuario);
-        Mapear(_nombreMateria, materias, it => it["nombre"]?.ToString());
-        Mapear(_seccionesNombre, secciones, TextoSeccion);
-        Mapear(_nombrePeriodo, periodos, it => it["nombre"]?.ToString());
+    // Campo booleano de estado (activo / activa); si no viene, se considera activo.
+    private static bool Activo(JToken it, string campo) => it[campo]?.Value<bool?>() ?? true;
 
-        return (errUsuarios, errMaterias, errSecciones, errPeriodos);
+    private static string? TextoPeriodo(JToken it)
+    {
+        var nombre = it["nombre"]?.ToString();
+        if (string.IsNullOrWhiteSpace(nombre)) return null;
+        return Activo(it, "activo") ? nombre : $"{nombre} (inactivo)";
     }
 
     // "A · Primer grado": nombre de la sección con su grado, para los combos.
@@ -419,14 +703,8 @@ public partial class DashboardWindow : Window
     private static string NombreDeUsuario(JToken it) =>
         Texto(it, "nombreCompleto", "nombre", "correoOUsuario") ?? $"Usuario #{Entero(it, "id") ?? 0}";
 
-    // ¿El usuario de la lista tiene este rol? Mira "rol" (texto) y, si no viene, "rolId".
-    private static bool EsRol(JToken usuario, string rol)
-    {
-        var texto = Texto(usuario, "rol");
-        return texto != null
-            ? texto.Trim().Equals(rol, StringComparison.OrdinalIgnoreCase)
-            : Entero(usuario, "rolId") == RolIdDesdeNombre(rol);
-    }
+    // ¿El usuario de la lista tiene este rol (código ADMIN / DOCENTE / ESTUDIANTE)?
+    private bool EsRol(JToken usuario, string rol) => CodigoRol(usuario) == rol;
 
     // GET a una lista de la API. Devuelve (datos, null) o (null, error real con código + mensaje).
     private static async System.Threading.Tasks.Task<(JArray? datos, string? error)> ObtenerListaAsync(string ruta)
@@ -436,8 +714,7 @@ public partial class DashboardWindow : Window
             var res = await ApiService.GetResultAsync(ruta);
             if (!res.Exito)
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                return (null, $"✗ Error {res.Codigo} al cargar /{ruta}: {detalle}");
+                return (null, res.Error($"cargar /{ruta}"));
             }
             return (JArray.Parse(res.Contenido), null);
         }
@@ -546,34 +823,96 @@ public partial class DashboardWindow : Window
 
     // ----- Docente -> materia + sección + período: api/admin/asignaciones-docente -----
 
+    // Mensaje cuando la API conectada no tiene el endpoint (responde 404 sin cuerpo).
+    private static string NoDisponible(string ruta, string que) =>
+        $"✗ No disponible: la API conectada no tiene el servicio api/{ruta} (responde 404), " +
+        $"así que no se pueden ver ni guardar {que}. Hace falta agregarlo en la API.";
+
+    // Habilita o deshabilita lo que depende de los endpoints de asignaciones.
+    private void ActualizarDisponibilidadAsignaciones()
+    {
+        bool docente = _asigDocenteDisponible != false;
+        bool estudiante = _estSeccionDisponible != false;
+        btnCrearAsignacion.IsEnabled = docente;
+        btnAgregarClase.IsEnabled = docente;
+        btnAsignarEstudiante.IsEnabled = estudiante;
+        pillAsignaciones.Visibility = docente && estudiante ? Visibility.Collapsed : Visibility.Visible;
+        pillAsignaciones.ToolTip = (docente, estudiante) switch
+        {
+            (false, false) => "No disponible: la API conectada no tiene los servicios de asignaciones (docentes y estudiantes).",
+            (false, true) => "No disponible: la API conectada no tiene el servicio de asignaciones de docentes.",
+            _ => "No disponible: la API conectada no tiene el servicio de secciones de estudiantes."
+        };
+    }
+
     private async System.Threading.Tasks.Task RecargarAsignaciones()
     {
-        var (datos, error) = await ObtenerListaAsync(Rutas.AsignacionesDocente);
         listaAsignaciones.Items.Clear();
-        if (datos is null)
+        try
         {
-            lblAsignacionesEstado.Text = error ?? "";
-            return;
-        }
+            var res = await ApiService.GetResultAsync(Rutas.AsignacionesDocente);
+            if (!res.Exito)
+            {
+                _asignacionesData = null;
+                if (res.EndpointInexistente) _asigDocenteDisponible = false;
+                lblAsignacionesEstado.Text = res.EndpointInexistente
+                    ? NoDisponible(Rutas.AsignacionesDocente, "las clases asignadas a los docentes")
+                    : res.Error("cargar las asignaciones de docentes");
+                return;
+            }
 
-        int i = 1;
-        foreach (var item in datos)
-        {
-            // Se aceptan nombres en el propio JSON o, si solo vienen ids, se buscan en los combos.
-            int id = Entero(item, "id", "asignacionId", "asignacionDocenteId") ?? 0;
-            var docente = Texto(item, "docente", "docenteNombre", "nombreDocente", "docenteNombreCompleto")
-                          ?? Nombre(_nombreUsuario, Entero(item, "docenteUsuarioId", "docenteId", "usuarioId"));
-            var materia = Texto(item, "materia", "materiaNombre", "nombreMateria")
-                          ?? Nombre(_nombreMateria, Entero(item, "materiaId"));
-            var seccion = TextoSeccionDe(item) ?? Nombre(_seccionesNombre, Entero(item, "seccionId"));
-            var periodo = Texto(item, "periodo", "periodoAcademico", "periodoNombre", "periodoAcademicoNombre")
-                          ?? Nombre(_nombrePeriodo, Entero(item, "periodoAcademicoId", "periodoId"));
-            listaAsignaciones.Items.Add(CrearFilaAsignacion(i++, id, docente, materia, seccion, periodo));
+            _asignacionesData = JArray.Parse(res.Contenido);
+            _asigDocenteDisponible = true;
+            int i = 1;
+            foreach (var item in _asignacionesData)
+            {
+                var (id, docente, materia, seccion, periodo) = DatosAsignacion(item);
+                listaAsignaciones.Items.Add(
+                    CrearFilaAsignacion(i++, id, docente, materia, seccion, periodo, lblAsignacionesEstado));
+            }
+            lblAsignacionesEstado.Text = _asignacionesData.Count == 0
+                ? "Todavía no hay docentes asignados."
+                : $"✓ {_asignacionesData.Count} asignación(es).";
         }
-        lblAsignacionesEstado.Text = datos.Count == 0
-            ? "Todavía no hay docentes asignados."
-            : $"✓ {datos.Count} asignación(es).";
+        catch (Exception ex)
+        {
+            _asignacionesData = null;
+            lblAsignacionesEstado.Text = $"✗ No se pudieron leer las asignaciones de docentes: {ex.Message}";
+        }
+        finally
+        {
+            ActualizarDisponibilidadAsignaciones();
+            RenderDocentes();
+            RenderClasesDocente();
+            ActualizarResumen();
+        }
     }
+
+    // Datos legibles de una asignación: se aceptan nombres en el propio JSON o, si solo
+    // vienen ids, se buscan en las listas ya cargadas.
+    private (int id, string docente, string materia, string seccion, string periodo) DatosAsignacion(JToken item)
+    {
+        int id = Entero(item, "id", "asignacionId", "asignacionDocenteId") ?? 0;
+        var docente = Texto(item, "docente", "docenteNombre", "nombreDocente", "docenteNombreCompleto")
+                      ?? Nombre(_nombreUsuario, DocenteDe(item));
+        var materia = Texto(item, "materia", "materiaNombre", "nombreMateria")
+                      ?? Nombre(_nombreMateria, Entero(item, "materiaId"));
+        var seccion = TextoSeccionDe(item) ?? Nombre(_seccionesNombre, Entero(item, "seccionId"));
+        var periodo = Texto(item, "periodo", "periodoAcademico", "periodoNombre", "periodoAcademicoNombre")
+                      ?? Nombre(_nombrePeriodo, Entero(item, "periodoAcademicoId", "periodoId"));
+        return (id, docente, materia, seccion, periodo);
+    }
+
+    private static int? DocenteDe(JToken item) =>
+        Entero(item, "docenteUsuarioId", "docenteId", "usuarioId", "docente");
+
+    // ¿Ya existe esa misma clase (docente + materia + sección + período)? La base no la admite dos veces.
+    private bool ExisteClase(int docenteId, int materiaId, int seccionId, int periodoId) =>
+        _asignacionesData?.Any(a =>
+            DocenteDe(a) == docenteId
+            && Entero(a, "materiaId", "materia") == materiaId
+            && Entero(a, "seccionId", "seccion") == seccionId
+            && Entero(a, "periodoAcademicoId", "periodoId", "periodoAcademico", "periodo") == periodoId) == true;
 
     // Nombre de la sección (con su grado si viene) leído del JSON de una asignación; null si no viene.
     private static string? TextoSeccionDe(JToken item)
@@ -586,18 +925,45 @@ public partial class DashboardWindow : Window
 
     private async void CrearAsignacion_Click(object sender, RoutedEventArgs e)
     {
-        int docenteId = TagCombo(cmbAsigDocente);
-        int materiaId = TagCombo(cmbAsigMateria);
-        int seccionId = TagCombo(cmbAsigSeccion);
-        int periodoId = TagCombo(cmbAsigPeriodo);
+        btnCrearAsignacion.IsEnabled = false;
+        try
+        {
+            await CrearClaseDocenteAsync(TagCombo(cmbAsigDocente), TagCombo(cmbAsigMateria),
+                TagCombo(cmbAsigSeccion), TagCombo(cmbAsigPeriodo), lblAsignacionesEstado);
+        }
+        finally
+        {
+            btnCrearAsignacion.IsEnabled = _asigDocenteDisponible != false;
+        }
+    }
 
+    // POST api/admin/asignaciones-docente: asigna al docente una materia en una sección y período.
+    // Lo usan las pestañas Asignaciones y Docentes. Devuelve true si se guardó.
+    private async System.Threading.Tasks.Task<bool> CrearClaseDocenteAsync(int docenteId, int materiaId,
+        int seccionId, int periodoId, TextBlock estado)
+    {
+        if (_asigDocenteDisponible == false)
+        {
+            estado.Text = NoDisponible(Rutas.AsignacionesDocente, "las clases asignadas a los docentes");
+            return false;
+        }
         if (docenteId <= 0 || materiaId <= 0 || seccionId <= 0 || periodoId <= 0)
         {
-            lblAsignacionesEstado.Text = "✗ Elige docente, materia, sección y período.";
-            return;
+            estado.Text = "✗ Elige docente, materia, sección y período.";
+            return false;
+        }
+        var docente = _usuariosData?.FirstOrDefault(u => Entero(u, "id") == docenteId);
+        if (docente != null && !Activo(docente, "activo"))
+        {
+            estado.Text = "✗ El docente está de baja. Reactívalo antes de asignarle clases.";
+            return false;
+        }
+        if (ExisteClase(docenteId, materiaId, seccionId, periodoId))
+        {
+            estado.Text = "✗ Ese docente ya tiene esa materia en esa sección y período.";
+            return false;
         }
 
-        btnCrearAsignacion.IsEnabled = false;
         try
         {
             var res = await ApiService.PostAsync(Rutas.AsignacionesDocente, new
@@ -608,28 +974,30 @@ public partial class DashboardWindow : Window
                 periodoAcademicoId = periodoId
             });
 
-            if (res.Exito)
+            if (!res.Exito)
             {
-                await RecargarAsignaciones();
-                lblAsignacionesEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Asignación creada." : res.Mensaje)}";
+                if (res.EndpointInexistente)
+                {
+                    _asigDocenteDisponible = false;
+                    ActualizarDisponibilidadAsignaciones();
+                    estado.Text = NoDisponible(Rutas.AsignacionesDocente, "las clases asignadas a los docentes");
+                }
+                else estado.Text = res.Error("asignar la clase");
+                return false;
             }
-            else
-            {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblAsignacionesEstado.Text = $"✗ Error {res.Codigo} al asignar: {detalle}";
-            }
+
+            await RecargarAsignaciones();
+            estado.Text = res.Ok("Clase asignada al docente.");
+            return true;
         }
         catch (Exception ex)
         {
-            lblAsignacionesEstado.Text = $"✗ No se pudo crear la asignación: {ex.Message}";
-        }
-        finally
-        {
-            btnCrearAsignacion.IsEnabled = true;
+            estado.Text = $"✗ No se pudo crear la asignación: {ex.Message}";
+            return false;
         }
     }
 
-    private async void EliminarAsignacion(int id, string resumen)
+    private async void EliminarAsignacion(int id, string resumen, TextBlock estado)
     {
         if (!Confirmar("Eliminar asignación", $"¿Eliminar la asignación:\n{resumen}?")) return;
 
@@ -639,32 +1007,37 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 await RecargarAsignaciones();
-                lblAsignacionesEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Asignación eliminada." : res.Mensaje)}";
+                estado.Text = res.Ok("Asignación eliminada.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblAsignacionesEstado.Text = $"✗ Error {res.Codigo} al eliminar la asignación: {detalle}";
+                estado.Text = res.Error("eliminar la asignación");
             }
         }
         catch (Exception ex)
         {
-            lblAsignacionesEstado.Text = $"✗ No se pudo eliminar la asignación: {ex.Message}";
+            estado.Text = $"✗ No se pudo eliminar la asignación: {ex.Message}";
         }
     }
 
-    private Border CrearFilaAsignacion(int num, int id, string docente, string materia, string seccion, string periodo)
+    // Fila de asignación. En la pestaña Docentes ya se sabe de qué docente es, así que el
+    // título es la materia.
+    private Border CrearFilaAsignacion(int num, int id, string docente, string materia, string seccion,
+        string periodo, TextBlock estado, bool mostrarDocente = true)
     {
-        var info = Ui.Info(docente, $"{materia}  ·  Sección {seccion}  ·  {periodo}");
+        var info = mostrarDocente
+            ? Ui.Info(docente, $"{materia}  ·  Sección {seccion}  ·  {periodo}")
+            : Ui.Info(materia, $"Sección {seccion}  ·  {periodo}");
 
         var resumen = $"{docente} — {materia} / Sección {seccion} / {periodo}";
         var btnEliminar = Ui.Accion("🗑 Eliminar", Tono.Coral);
-        btnEliminar.Click += (_, _) => EliminarAsignacion(id, resumen);
+        btnEliminar.Click += (_, _) => EliminarAsignacion(id, resumen, estado);
         if (id <= 0)
         {
             // Sin id no hay a qué ruta mandar el DELETE.
             btnEliminar.IsEnabled = false;
             btnEliminar.ToolTip = "La API no devolvió el id de esta asignación.";
+            ToolTipService.SetShowOnDisabled(btnEliminar, true);
         }
 
         return Ui.Fila(num, info, btnEliminar);
@@ -675,15 +1048,34 @@ public partial class DashboardWindow : Window
     // Trae todos los estudiantes con su sección (también los que no tienen) y los pinta.
     private async System.Threading.Tasks.Task RecargarEstudiantesSeccion()
     {
-        var (datos, error) = await ObtenerListaAsync(Rutas.EstudiantesSeccion);
-        _estudiantesData = datos;
-        if (datos is null)
+        try
         {
-            listaEstudiantesSeccion.Items.Clear();
-            lblEstudiantesEstado.Text = error ?? "";
-            return;
+            var res = await ApiService.GetResultAsync(Rutas.EstudiantesSeccion);
+            if (!res.Exito)
+            {
+                _estudiantesData = null;
+                listaEstudiantesSeccion.Items.Clear();
+                if (res.EndpointInexistente) _estSeccionDisponible = false;
+                lblEstudiantesEstado.Text = res.EndpointInexistente
+                    ? NoDisponible(Rutas.EstudiantesSeccion, "las secciones de los estudiantes")
+                    : res.Error("cargar los estudiantes con su sección");
+                return;
+            }
+            _estudiantesData = JArray.Parse(res.Contenido);
+            _estSeccionDisponible = true;
+            RenderEstudiantesSeccion(txtBuscarEstudiante.Text);
         }
-        RenderEstudiantesSeccion(txtBuscarEstudiante.Text);
+        catch (Exception ex)
+        {
+            _estudiantesData = null;
+            listaEstudiantesSeccion.Items.Clear();
+            lblEstudiantesEstado.Text = $"✗ No se pudieron leer las secciones de los estudiantes: {ex.Message}";
+        }
+        finally
+        {
+            ActualizarDisponibilidadAsignaciones();
+            RenderEstudiantesAdmin();
+        }
     }
 
     // Pinta los estudiantes ya cargados, filtrando por nombre (en vivo, sin llamar a la API).
@@ -700,9 +1092,7 @@ public partial class DashboardWindow : Window
             var nombre = Texto(item, "nombreCompleto", "estudiante", "estudianteNombre", "nombre")
                          ?? Nombre(_nombreUsuario, usuarioId);
             var correo = Texto(item, "correoOUsuario", "correo", "usuario");
-            int? seccionId = Entero(item, "seccionId", "seccion");
-            if (seccionId <= 0) seccionId = null; // 0 = sin sección
-            var seccion = TextoSeccionDe(item) ?? (seccionId.HasValue ? Nombre(_seccionesNombre, seccionId) : null);
+            var (seccionId, seccion) = SeccionDe(item);
             if (seccion is null) sinSeccion++;
 
             if (filtro.Length > 0 && !nombre.Contains(filtro, StringComparison.OrdinalIgnoreCase)) continue;
@@ -714,6 +1104,22 @@ public partial class DashboardWindow : Window
         lblEstudiantesEstado.Text = filtro.Length > 0
             ? $"✓ {mostrados} de {resumen} (filtro: \"{filtro}\")."
             : $"✓ {resumen}.";
+    }
+
+    // (seccionId, "A · Primer grado") de un elemento de api/admin/estudiantes-seccion; null si no tiene.
+    private (int? id, string? texto) SeccionDe(JToken item)
+    {
+        int? seccionId = Entero(item, "seccionId", "seccion");
+        if (seccionId <= 0) seccionId = null; // 0 = sin sección
+        var seccion = TextoSeccionDe(item) ?? (seccionId.HasValue ? Nombre(_seccionesNombre, seccionId) : null);
+        return (seccionId, seccion);
+    }
+
+    // Sección actual de un estudiante; null si el estudiante no aparece en la lista (o no se cargó).
+    private (int? id, string? texto)? SeccionActual(int usuarioId)
+    {
+        var item = _estudiantesData?.FirstOrDefault(e => Entero(e, "usuarioId", "estudianteId", "id") == usuarioId);
+        return item is null ? null : SeccionDe(item);
     }
 
     private void BuscarEstudiante_Changed(object sender, TextChangedEventArgs e) =>
@@ -752,41 +1158,61 @@ public partial class DashboardWindow : Window
         cmbEstSeccion.Focus();
     }
 
-    // POST api/admin/estudiantes-seccion con { usuarioId, seccionId }: asigna o reasigna.
     private async void AsignarEstudiante_Click(object sender, RoutedEventArgs e)
     {
         int usuarioId = TagCombo(cmbEstEstudiante);
         int seccionId = TagCombo(cmbEstSeccion);
-        if (usuarioId <= 0 || seccionId <= 0)
-        {
-            lblEstudiantesEstado.Text = "✗ Elige estudiante y sección.";
-            return;
-        }
 
         btnAsignarEstudiante.IsEnabled = false;
+        try
+        {
+            var (_, mensaje) = await AsignarSeccionAsync(usuarioId, Nombre(_nombreUsuario, usuarioId), seccionId);
+            if (mensaje != null) lblEstudiantesEstado.Text = mensaje;
+        }
+        finally
+        {
+            btnAsignarEstudiante.IsEnabled = _estSeccionDisponible != false;
+        }
+    }
+
+    // POST api/admin/estudiantes-seccion con { usuarioId, seccionId }: asigna o cambia la sección.
+    // Si el estudiante ya tiene otra sección, se confirma antes. Devuelve (guardado, mensaje);
+    // mensaje = null cuando el usuario canceló la confirmación.
+    private async System.Threading.Tasks.Task<(bool ok, string? mensaje)> AsignarSeccionAsync(
+        int usuarioId, string nombre, int seccionId)
+    {
+        if (_estSeccionDisponible == false)
+            return (false, NoDisponible(Rutas.EstudiantesSeccion, "las secciones de los estudiantes"));
+        if (usuarioId <= 0 || seccionId <= 0) return (false, "✗ Elige estudiante y sección.");
+
+        var nueva = Nombre(_seccionesNombre, seccionId);
+        var actual = SeccionActual(usuarioId);
+        if (actual?.id == seccionId) return (false, $"✗ \"{nombre}\" ya está en la sección {nueva}.");
+        if (actual?.id is not null
+            && !Confirmar("Cambiar de sección",
+                $"¿Pasar a \"{nombre}\" de la sección {actual.Value.texto} a la sección {nueva}?",
+                "Sí, cambiar", "Su sección actual se reemplazará por la nueva.", "BtnPrimario"))
+            return (false, null);
+
         try
         {
             var res = await ApiService.PostAsync(Rutas.EstudiantesSeccion,
                 new { usuarioId = usuarioId, seccionId = seccionId });
 
-            if (res.Exito)
+            if (!res.Exito)
             {
-                await RecargarEstudiantesSeccion();
-                lblEstudiantesEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Estudiante asignado a la sección." : res.Mensaje)}";
+                if (!res.EndpointInexistente) return (false, res.Error("asignar la sección"));
+                _estSeccionDisponible = false;
+                ActualizarDisponibilidadAsignaciones();
+                return (false, NoDisponible(Rutas.EstudiantesSeccion, "las secciones de los estudiantes"));
             }
-            else
-            {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblEstudiantesEstado.Text = $"✗ Error {res.Codigo} al asignar el estudiante: {detalle}";
-            }
+
+            await RecargarEstudiantesSeccion();
+            return (true, res.Ok($"\"{nombre}\" quedó en la sección {nueva}."));
         }
         catch (Exception ex)
         {
-            lblEstudiantesEstado.Text = $"✗ No se pudo asignar el estudiante: {ex.Message}";
-        }
-        finally
-        {
-            btnAsignarEstudiante.IsEnabled = true;
+            return (false, $"✗ No se pudo asignar el estudiante: {ex.Message}");
         }
     }
 
@@ -803,17 +1229,324 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 await RecargarEstudiantesSeccion();
-                lblEstudiantesEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Estudiante quitado de la sección." : res.Mensaje)}";
+                lblEstudiantesEstado.Text = res.Ok("Estudiante quitado de la sección.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblEstudiantesEstado.Text = $"✗ Error {res.Codigo} al quitar el estudiante de la sección: {detalle}";
+                lblEstudiantesEstado.Text = res.Error("quitar el estudiante de la sección");
             }
         }
         catch (Exception ex)
         {
             lblEstudiantesEstado.Text = $"✗ No se pudo quitar el estudiante de la sección: {ex.Message}";
+        }
+    }
+
+    // ===== ESTUDIANTES y DOCENTES (ADMIN): baja / reactivación =====
+    // Las listas salen de GET api/Usuarios filtrando por rol. Dar de baja = PUT api/Usuarios/{id}
+    // con Activo = false (NO se borra nada); reactivar = el mismo PUT con Activo = true.
+
+    private static Border PillEstado(bool activo) =>
+        activo ? Ui.Pill("ACTIVO", Tono.Verde) : Ui.Pill("DE BAJA", Tono.Coral);
+
+    // ¿El texto buscado aparece en el nombre o en el usuario/correo?
+    private static bool Coincide(string filtro, string nombre, string? correo) =>
+        filtro.Length == 0
+        || nombre.Contains(filtro, StringComparison.OrdinalIgnoreCase)
+        || (correo?.Contains(filtro, StringComparison.OrdinalIgnoreCase) ?? false);
+
+    // Botón «Dar de baja» / «Reactivar» de una fila de usuario.
+    private Button BotonEstado(int id, string nombre, bool activo, TextBlock estado, string? avisoBaja = null)
+    {
+        var btn = activo
+            ? Ui.Accion("Dar de baja", Tono.Coral, "Desactiva la cuenta: no podrá iniciar sesión (no se borra nada)")
+            : Ui.Accion("Reactivar", Tono.Verde, "Vuelve a activar la cuenta");
+        btn.Click += (_, _) => CambiarActivoUsuario(id, nombre, !activo, estado, avisoBaja);
+        if (activo && id == ApiService.UsuarioId)
+        {
+            btn.IsEnabled = false;
+            btn.ToolTip = "No puedes darte de baja a ti mismo: perderías el acceso.";
+            ToolTipService.SetShowOnDisabled(btn, true);
+        }
+        return btn;
+    }
+
+    // Baja / reactivación con confirmación. Antes del PUT se leen los datos actuales del
+    // usuario (GET api/Usuarios/{id}) para no pisar cambios hechos desde otro lado.
+    private async void CambiarActivoUsuario(int id, string nombre, bool activar, TextBlock estado,
+        string? avisoBaja = null)
+    {
+        if (id <= 0) return;
+        if (!activar && id == ApiService.UsuarioId)
+        {
+            estado.Text = "✗ No puedes darte de baja a ti mismo: perderías el acceso.";
+            return;
+        }
+        var clave = $"usuario:{id}";
+        if (!_enCurso.Add(clave)) return; // ya hay una operación en marcha sobre este usuario
+
+        try
+        {
+            bool confirmado = activar
+                ? Confirmar("Reactivar cuenta", $"¿Reactivar a \"{nombre}\"?", "Sí, reactivar",
+                    "Podrá volver a iniciar sesión.", "BtnPrimario", "✓", Tono.Verde)
+                : Confirmar("Dar de baja", $"¿Dar de baja a \"{nombre}\"?", "Sí, dar de baja",
+                    "No podrá iniciar sesión. No se borra ningún dato y puedes reactivarlo cuando quieras."
+                    + (avisoBaja is null ? "" : $"\n{avisoBaja}"));
+            if (!confirmado) return;
+
+            var actual = await ApiService.GetResultAsync($"{Rutas.Usuarios}/{id}");
+            if (!actual.Exito)
+            {
+                estado.Text = actual.Error("leer los datos actuales del usuario");
+                return;
+            }
+            var u = JObject.Parse(actual.Contenido);
+            var nombreActual = Texto(u, "nombreCompleto");
+            var correoActual = Texto(u, "correoOUsuario");
+            var rolId = Entero(u, "rolId");
+            if (nombreActual is null || correoActual is null || rolId is null)
+            {
+                estado.Text = "✗ La API devolvió el usuario incompleto; no se cambió su estado.";
+                return;
+            }
+
+            var res = await ApiService.PutAsync($"{Rutas.Usuarios}/{id}", new
+            {
+                nombreCompleto = nombreActual,
+                correoOUsuario = correoActual,
+                rolId = rolId.Value,
+                activo = activar
+            });
+            if (!res.Exito)
+            {
+                estado.Text = res.Error(activar ? "reactivar la cuenta" : "dar de baja la cuenta");
+                return;
+            }
+
+            await RecargarUsuarios();
+            estado.Text = activar ? $"✓ \"{nombre}\" fue reactivado." : $"✓ \"{nombre}\" fue dado de baja.";
+        }
+        catch (Exception ex)
+        {
+            estado.Text = $"✗ No se pudo cambiar el estado de la cuenta: {ex.Message}";
+        }
+        finally
+        {
+            _enCurso.Remove(clave);
+        }
+    }
+
+    // ----- Pestaña Estudiantes -----
+
+    private void RenderEstudiantesAdmin()
+    {
+        if (_usuariosData is null || listaEstAdmin is null) return;
+        var filtro = (txtBuscarEstAdmin.Text ?? "").Trim();
+        int modo = cmbFiltroEstAdmin.SelectedIndex; // 0 = todos, 1 = activos, 2 = de baja
+
+        var estudiantes = _usuariosData.Where(u => EsRol(u, "ESTUDIANTE")).ToList();
+        listaEstAdmin.Items.Clear();
+        int i = 1;
+        foreach (var u in estudiantes)
+        {
+            bool activo = Activo(u, "activo");
+            if ((modo == 1 && !activo) || (modo == 2 && activo)) continue;
+            if (!Coincide(filtro, NombreDeUsuario(u), Texto(u, "correoOUsuario"))) continue;
+            listaEstAdmin.Items.Add(CrearFilaEstudianteAdmin(i++, u));
+        }
+
+        int activos = estudiantes.Count(u => Activo(u, "activo"));
+        var resumen = $"{estudiantes.Count} estudiante(s): {activos} activo(s), {estudiantes.Count - activos} de baja";
+        lblEstAdminEstado.Text = i - 1 == estudiantes.Count ? $"✓ {resumen}." : $"✓ Mostrando {i - 1} · {resumen}.";
+        if (_estSeccionDisponible == false)
+            lblEstAdminEstado.Text += $"\nLa sección de cada estudiante no está disponible: la API no tiene api/{Rutas.EstudiantesSeccion}.";
+    }
+
+    private void BuscarEstAdmin_Changed(object sender, TextChangedEventArgs e) => RenderEstudiantesAdmin();
+    private void FiltroEstAdmin_Changed(object sender, SelectionChangedEventArgs e) => RenderEstudiantesAdmin();
+
+    private Border CrearFilaEstudianteAdmin(int num, JToken usuario)
+    {
+        int id = Entero(usuario, "id") ?? 0;
+        var nombre = NombreDeUsuario(usuario);
+        var correo = Texto(usuario, "correoOUsuario");
+        bool activo = Activo(usuario, "activo");
+
+        // La sección solo se muestra si la API la informa; si no, se dice que no está disponible.
+        var seccion = _estSeccionDisponible switch
+        {
+            false => "Sección: no disponible",
+            true when SeccionActual(id) is { } s => s.texto is null ? "Sin sección" : $"Sección {s.texto}",
+            _ => "Sección: —"
+        };
+        var info = Ui.Info(nombre, correo is null ? seccion : $"{correo}  ·  {seccion}", PillEstado(activo));
+
+        var btnSeccion = Ui.Accion("Sección", Tono.Teal, "Asignar o cambiar la sección del estudiante");
+        btnSeccion.Click += (_, _) => DialogoSeccionEstudiante(id, nombre);
+        if (_estSeccionDisponible == false)
+        {
+            btnSeccion.IsEnabled = false;
+            btnSeccion.ToolTip = $"No disponible: la API conectada no tiene api/{Rutas.EstudiantesSeccion}.";
+            ToolTipService.SetShowOnDisabled(btnSeccion, true);
+        }
+
+        return Ui.Fila(num, info, btnSeccion, BotonEstado(id, nombre, activo, lblEstAdminEstado));
+    }
+
+    // Diálogo para asignar o cambiar la sección de un estudiante (solo secciones activas).
+    private void DialogoSeccionEstudiante(int usuarioId, string nombre)
+    {
+        if (_seccionesData is null)
+        {
+            lblEstAdminEstado.Text = "✗ No se pudo cargar la lista de secciones; revisa la pestaña Grados y Secciones.";
+            return;
+        }
+        var actual = SeccionActual(usuarioId);
+        string? mensaje = null;
+        var guardado = DialogoSeleccion("Sección del estudiante",
+            actual?.texto is null ? $"{nombre} no tiene sección." : $"{nombre} está en la sección {actual.Value.texto}.",
+            "Sección", _seccionesData, it => Activo(it, "activa") ? TextoSeccion(it) : null, actual?.id ?? 0,
+            async seccionId =>
+            {
+                var (ok, texto) = await AsignarSeccionAsync(usuarioId, nombre, seccionId);
+                if (ok) { mensaje = texto; return null; }
+                return texto ?? ""; // "" = canceló la confirmación: el diálogo sigue abierto, sin error
+            });
+        if (guardado && mensaje != null) lblEstAdminEstado.Text = mensaje;
+    }
+
+    // ----- Pestaña Docentes -----
+
+    private void RenderDocentes()
+    {
+        if (_usuariosData is null || listaDocentes is null) return;
+        var filtro = (txtBuscarDocente.Text ?? "").Trim();
+
+        var docentes = _usuariosData.Where(u => EsRol(u, "DOCENTE")).ToList();
+        listaDocentes.Items.Clear();
+        int i = 1;
+        foreach (var u in docentes)
+        {
+            if (!Coincide(filtro, NombreDeUsuario(u), Texto(u, "correoOUsuario"))) continue;
+            listaDocentes.Items.Add(CrearFilaDocente(i++, u));
+        }
+
+        int activos = docentes.Count(u => Activo(u, "activo"));
+        var resumen = $"{docentes.Count} docente(s): {activos} activo(s), {docentes.Count - activos} de baja";
+        lblDocentesEstado.Text = i - 1 == docentes.Count ? $"✓ {resumen}." : $"✓ Mostrando {i - 1} · {resumen}.";
+
+        // Si el docente elegido ya no está en la lista, se cierra su panel de clases.
+        if (_docenteSeleccionadoId > 0 && !docentes.Any(d => Entero(d, "id") == _docenteSeleccionadoId))
+        {
+            _docenteSeleccionadoId = 0;
+            RenderClasesDocente();
+        }
+    }
+
+    private void BuscarDocente_Changed(object sender, TextChangedEventArgs e) => RenderDocentes();
+
+    private List<JToken> ClasesDe(int docenteId) =>
+        _asignacionesData?.Where(a => DocenteDe(a) == docenteId).ToList() ?? new List<JToken>();
+
+    private Border CrearFilaDocente(int num, JToken usuario)
+    {
+        int id = Entero(usuario, "id") ?? 0;
+        var nombre = NombreDeUsuario(usuario);
+        var correo = Texto(usuario, "correoOUsuario");
+        bool activo = Activo(usuario, "activo");
+
+        int? cantidad = _asignacionesData is null ? null : ClasesDe(id).Count;
+        var clases = _asigDocenteDisponible == false ? "Clases: no disponible"
+            : cantidad is null ? "Clases: —"
+            : $"{cantidad} clase(s)";
+        var info = Ui.Info(nombre, correo is null ? clases : $"{correo}  ·  {clases}", PillEstado(activo));
+
+        var btnClases = Ui.Accion("Clases", Tono.Teal, "Ver y gestionar las clases de este docente");
+        btnClases.Click += (_, _) => SeleccionarDocente(id);
+        var aviso = cantidad > 0 ? $"Sus {cantidad} clase(s) asignada(s) no se quitan." : null;
+
+        var fila = Ui.Fila(num, info, btnClases, BotonEstado(id, nombre, activo, lblDocentesEstado, aviso));
+        if (id == _docenteSeleccionadoId)
+        {
+            // Solo el borde: con fondo menta los botones de la fila perderían su color.
+            fila.BorderBrush = Paleta.Teal;
+            fila.BorderThickness = new Thickness(2);
+        }
+        return fila;
+    }
+
+    private void SeleccionarDocente(int id)
+    {
+        _docenteSeleccionadoId = id;
+        LlenarCombosClaseDocente();
+        RenderDocentes(); // resalta la fila elegida
+        RenderClasesDocente();
+    }
+
+    // Combos del formulario «Asignar clase»: solo materias y secciones activas; períodos marcados.
+    private void LlenarCombosClaseDocente()
+    {
+        LlenarCombo(cmbClaseMateria, _materiasData, it => Activo(it, "activa") ? it["nombre"]?.ToString() : null);
+        LlenarCombo(cmbClaseSeccion, _seccionesData, it => Activo(it, "activa") ? TextoSeccion(it) : null);
+        LlenarCombo(cmbClasePeriodo, _periodosData, TextoPeriodo);
+    }
+
+    // Panel derecho: las clases del docente elegido y el formulario para asignarle otra.
+    private void RenderClasesDocente()
+    {
+        if (listaClasesDocente is null) return;
+        listaClasesDocente.Items.Clear();
+        if (_docenteSeleccionadoId <= 0)
+        {
+            panelClasesDocente.Visibility = Visibility.Collapsed;
+            lblClasesDocenteInfo.Text = "Elige un docente (botón «Clases») para ver y gestionar sus clases.";
+            return;
+        }
+
+        lblClasesDocenteInfo.Text = $"Clases de {Nombre(_nombreUsuario, _docenteSeleccionadoId)}";
+        panelClasesDocente.Visibility = Visibility.Visible;
+
+        if (_asigDocenteDisponible == false)
+        {
+            lblClasesDocenteEstado.Text = NoDisponible(Rutas.AsignacionesDocente, "las clases asignadas a los docentes");
+            return;
+        }
+        if (_asignacionesData is null)
+        {
+            lblClasesDocenteEstado.Text = "✗ No se pudieron cargar las asignaciones; revisa la pestaña Asignaciones.";
+            return;
+        }
+
+        var clases = ClasesDe(_docenteSeleccionadoId);
+        int i = 1;
+        foreach (var c in clases)
+        {
+            var (id, docente, materia, seccion, periodo) = DatosAsignacion(c);
+            listaClasesDocente.Items.Add(CrearFilaAsignacion(i++, id, docente, materia, seccion, periodo,
+                lblClasesDocenteEstado, mostrarDocente: false));
+        }
+        lblClasesDocenteEstado.Text = clases.Count == 0
+            ? "Este docente aún no tiene clases asignadas."
+            : $"✓ {clases.Count} clase(s).";
+    }
+
+    private async void AgregarClase_Click(object sender, RoutedEventArgs e)
+    {
+        if (_docenteSeleccionadoId <= 0)
+        {
+            lblClasesDocenteEstado.Text = "✗ Elige primero un docente.";
+            return;
+        }
+        btnAgregarClase.IsEnabled = false;
+        try
+        {
+            await CrearClaseDocenteAsync(_docenteSeleccionadoId, TagCombo(cmbClaseMateria),
+                TagCombo(cmbClaseSeccion), TagCombo(cmbClasePeriodo), lblClasesDocenteEstado);
+        }
+        finally
+        {
+            btnAgregarClase.IsEnabled = _asigDocenteDisponible != false;
         }
     }
 
@@ -845,8 +1578,7 @@ public partial class DashboardWindow : Window
             if (!res.Exito)
             {
                 listaActividades.Items.Clear();
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblActividadesEstado.Text = $"✗ Error {res.Codigo} al listar actividades: {detalle}";
+                lblActividadesEstado.Text = res.Error("listar actividades");
                 return;
             }
             var array = JArray.Parse(res.Contenido);
@@ -907,12 +1639,11 @@ public partial class DashboardWindow : Window
                 txtActTitulo.Clear();
                 txtActDescripcion.Clear();
                 await RecargarActividades();
-                lblActividadesEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Actividad creada." : res.Mensaje)}";
+                lblActividadesEstado.Text = res.Ok("Actividad creada.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblActividadesEstado.Text = $"✗ Error {res.Codigo} al crear la actividad: {detalle}";
+                lblActividadesEstado.Text = res.Error("crear la actividad");
             }
         }
         catch (Exception ex)
@@ -986,8 +1717,7 @@ public partial class DashboardWindow : Window
             if (!res.Exito)
             {
                 listaPubSecciones.Items.Clear();
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblPublicarEstado.Text = $"✗ Error {res.Codigo} al leer la actividad: {detalle}";
+                lblPublicarEstado.Text = res.Error("leer la actividad");
                 return;
             }
             var obj = JObject.Parse(res.Contenido);
@@ -1061,12 +1791,11 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 await RecargarPubSecciones();
-                lblPublicarEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Actividad publicada a la sección." : res.Mensaje)}";
+                lblPublicarEstado.Text = res.Ok("Actividad publicada a la sección.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblPublicarEstado.Text = $"✗ Error {res.Codigo} al publicar: {detalle}";
+                lblPublicarEstado.Text = res.Error("publicar");
             }
         }
         catch (Exception ex)
@@ -1092,12 +1821,11 @@ public partial class DashboardWindow : Window
             {
                 MostrarEstadoActividad(nuevoEstado);
                 await RecargarActividades(); // refleja el nuevo estado en la lista
-                lblPublicarEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? $"Estado cambiado a {nuevoEstado}." : res.Mensaje)}";
+                lblPublicarEstado.Text = res.Ok($"Estado cambiado a {nuevoEstado}.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblPublicarEstado.Text = $"✗ Error {res.Codigo} al cambiar el estado: {detalle}";
+                lblPublicarEstado.Text = res.Error("cambiar el estado");
             }
         }
         catch (Exception ex)
@@ -1127,8 +1855,7 @@ public partial class DashboardWindow : Window
             if (!res.Exito)
             {
                 listaBancoPreguntas.Items.Clear();
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblAsignarEstado.Text = $"✗ Error {res.Codigo} al listar preguntas: {detalle}";
+                lblAsignarEstado.Text = res.Error("listar preguntas");
                 return;
             }
             var array = JArray.Parse(res.Contenido);
@@ -1161,12 +1888,11 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 await RecargarActividades(); // actualiza el contador de preguntas
-                lblAsignarEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Pregunta asignada." : res.Mensaje)}";
+                lblAsignarEstado.Text = res.Ok("Pregunta asignada.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblAsignarEstado.Text = $"✗ Error {res.Codigo} al asignar la pregunta: {detalle}";
+                lblAsignarEstado.Text = res.Error("asignar la pregunta");
             }
         }
         catch (Exception ex)
@@ -1206,17 +1932,17 @@ public partial class DashboardWindow : Window
 
             if (!res.Exito)
             {
+                _gradosData = null;
                 listaGrados.Items.Clear();
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblGradosEstado.Text = $"✗ Error {res.Codigo} al listar grados: {detalle}";
+                lblGradosEstado.Text = res.Error("listar grados");
                 return;
             }
 
-            var array = JArray.Parse(res.Contenido);
+            _gradosData = JArray.Parse(res.Contenido);
 
             listaGrados.Items.Clear();
             int i = 1;
-            foreach (var item in array)
+            foreach (var item in _gradosData)
             {
                 int id = item["id"]?.Value<int>() ?? 0;
                 var nombre = item["nombre"]?.ToString() ?? "-";
@@ -1225,26 +1951,41 @@ public partial class DashboardWindow : Window
                 listaGrados.Items.Add(CrearFilaGrado(i++, id, nombre, orden, activo));
             }
 
-            lblGradosEstado.Text = $"✓ {array.Count} grado(s).";
+            lblGradosEstado.Text = $"✓ {_gradosData.Count} grado(s).";
         }
         catch (Exception ex)
         {
+            _gradosData = null;
             lblGradosEstado.Text = $"✗ No se pudieron cargar los grados: {ex.Message}";
         }
     }
 
+    // Nombre obligatorio, máx. 50 caracteres y único (UQ_Grado_Nombre; la API no lo revisa).
+    private string? ErrorGrado(string nombre, int id) =>
+        Validacion.Texto(nombre, "Nombre del grado", Validacion.MaxGrado)
+        ?? (Validacion.Duplicado(_gradosData, "nombre", nombre, id)
+            ? $"✗ Ya existe un grado llamado \"{nombre}\"."
+            : null);
+
+    private const string ErrorOrden = "✗ El orden debe ser un número entero entre 0 y 255 (o déjalo vacío).";
+
     private async void CrearGrado_Click(object sender, RoutedEventArgs e)
     {
-        var nombre = txtNuevoGrado.Text.Trim();
-        if (string.IsNullOrWhiteSpace(nombre))
+        var nombre = Validacion.Limpiar(txtNuevoGrado.Text);
+        txtNuevoGrado.Text = nombre;
+        var error = ErrorGrado(nombre, 0);
+        if (error != null)
         {
-            lblGradosEstado.Text = "✗ Escribe un nombre para el grado.";
+            lblGradosEstado.Text = error;
+            txtNuevoGrado.Focus();
             return;
         }
         // Orden: byte opcional (0-255). Vacío = sin orden.
         if (!LeerOrden(txtOrdenGrado.Text, out var orden))
         {
-            lblGradosEstado.Text = "✗ El orden debe ser un número entero entre 0 y 255 (o déjalo vacío).";
+            lblGradosEstado.Text = ErrorOrden;
+            txtOrdenGrado.Focus();
+            txtOrdenGrado.SelectAll();
             return;
         }
 
@@ -1258,12 +1999,11 @@ public partial class DashboardWindow : Window
                 txtNuevoGrado.Clear();
                 txtOrdenGrado.Text = "1";
                 await RecargarGrados();
-                lblGradosEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Grado creado." : res.Mensaje)}";
+                lblGradosEstado.Text = res.Ok($"Grado \"{nombre}\" creado.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblGradosEstado.Text = $"✗ Error {res.Codigo} al crear el grado: {detalle}";
+                lblGradosEstado.Text = res.Error("crear el grado");
             }
         }
         catch (Exception ex)
@@ -1296,9 +2036,18 @@ public partial class DashboardWindow : Window
         return cuerpo;
     }
 
+    // Secciones de un grado según la lista ya cargada (null si no se pudo cargar).
+    private int? SeccionesDelGrado(int gradoId) =>
+        _seccionesData?.Count(s => Entero(s, "gradoId") == gradoId);
+
     private async void EliminarGrado(int id, string nombre)
     {
-        if (!Confirmar("Eliminar grado", $"¿Eliminar el grado \"{nombre}\"?")) return;
+        var secciones = SeccionesDelGrado(id);
+        var aviso = secciones > 0
+            ? $"Este grado tiene {secciones} sección(es): la base no permite borrarlo mientras existan. " +
+              "Si ya no se usa, desactívalo con «✎»."
+            : "Esta acción no se puede deshacer.";
+        if (!Confirmar("Eliminar grado", $"¿Eliminar el grado \"{nombre}\"?", "Sí, eliminar", aviso)) return;
 
         try
         {
@@ -1314,12 +2063,11 @@ public partial class DashboardWindow : Window
                     lblSeccionesInfo.Text = "Elige un grado (botón «Secciones») para gestionar sus secciones.";
                 }
                 await RecargarGrados();
-                lblGradosEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Grado eliminado." : res.Mensaje)}";
+                lblGradosEstado.Text = res.Ok("Grado eliminado.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblGradosEstado.Text = $"✗ Error {res.Codigo} al eliminar el grado: {detalle}";
+                lblGradosEstado.Text = res.Error("eliminar el grado");
             }
         }
         catch (Exception ex)
@@ -1341,47 +2089,66 @@ public partial class DashboardWindow : Window
 
     // ===== SECCIONES =====
 
+    // Trae TODAS las secciones (para el resumen, los combos y los duplicados) y pinta las del
+    // grado elegido.
     private async System.Threading.Tasks.Task RecargarSecciones()
     {
-        if (_gradoSeleccionadoId <= 0) return;
-
         try
         {
             var res = await ApiService.GetResultAsync(Rutas.Secciones);
 
             if (!res.Exito)
             {
+                _seccionesData = null;
                 listaSecciones.Items.Clear();
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblSeccionesEstado.Text = $"✗ Error {res.Codigo} al listar secciones: {detalle}";
+                lblSeccionesEstado.Text = res.Error("listar secciones");
                 return;
             }
 
-            var array = JArray.Parse(res.Contenido);
-
-            listaSecciones.Items.Clear();
-            int i = 1;
-            foreach (var item in array)
-            {
-                int gradoId = item["gradoId"]?.Value<int>() ?? 0;
-                if (gradoId != _gradoSeleccionadoId) continue; // filtramos en la app
-
-                int id = item["id"]?.Value<int>() ?? 0;
-                var nombre = item["nombre"]?.ToString() ?? "-";
-                var grado = item["grado"]?.ToString() ?? "";
-                bool activa = item["activa"]?.Value<bool>() ?? true;
-                listaSecciones.Items.Add(CrearFilaSeccion(i++, id, nombre, grado, activa));
-            }
-
-            lblSeccionesEstado.Text = (i == 1)
-                ? "Este grado aún no tiene secciones."
-                : $"✓ {i - 1} sección(es).";
+            _seccionesData = JArray.Parse(res.Contenido);
+            Mapear(_seccionesNombre, _seccionesData, TextoSeccion);
+            RenderSecciones();
         }
         catch (Exception ex)
         {
+            _seccionesData = null;
             lblSeccionesEstado.Text = $"✗ No se pudieron cargar las secciones: {ex.Message}";
         }
+        finally
+        {
+            ActualizarResumen();
+        }
     }
+
+    private void RenderSecciones()
+    {
+        if (_gradoSeleccionadoId <= 0 || _seccionesData is null) return;
+
+        listaSecciones.Items.Clear();
+        int i = 1;
+        foreach (var item in _seccionesData)
+        {
+            int gradoId = item["gradoId"]?.Value<int>() ?? 0;
+            if (gradoId != _gradoSeleccionadoId) continue; // filtramos en la app
+
+            int id = item["id"]?.Value<int>() ?? 0;
+            var nombre = item["nombre"]?.ToString() ?? "-";
+            var grado = item["grado"]?.ToString() ?? "";
+            bool activa = item["activa"]?.Value<bool>() ?? true;
+            listaSecciones.Items.Add(CrearFilaSeccion(i++, id, nombre, grado, activa));
+        }
+
+        lblSeccionesEstado.Text = (i == 1)
+            ? "Este grado aún no tiene secciones."
+            : $"✓ {i - 1} sección(es).";
+    }
+
+    // Nombre obligatorio, máx. 30 caracteres y único dentro del grado (UQ_Seccion_GradoNombre).
+    private string? ErrorSeccion(string nombre, int id, int gradoId) =>
+        Validacion.Texto(nombre, "Nombre de la sección", Validacion.MaxSeccion)
+        ?? (Validacion.Duplicado(_seccionesData, "nombre", nombre, id, s => Entero(s, "gradoId") == gradoId)
+            ? $"✗ Este grado ya tiene una sección llamada \"{nombre}\"."
+            : null);
 
     private async void CrearSeccion_Click(object sender, RoutedEventArgs e)
     {
@@ -1391,10 +2158,13 @@ public partial class DashboardWindow : Window
             return;
         }
 
-        var nombre = txtNuevaSeccion.Text.Trim();
-        if (string.IsNullOrWhiteSpace(nombre))
+        var nombre = Validacion.Limpiar(txtNuevaSeccion.Text);
+        txtNuevaSeccion.Text = nombre;
+        var error = ErrorSeccion(nombre, 0, _gradoSeleccionadoId);
+        if (error != null)
         {
-            lblSeccionesEstado.Text = "✗ Escribe un nombre para la sección.";
+            lblSeccionesEstado.Text = error;
+            txtNuevaSeccion.Focus();
             return;
         }
 
@@ -1408,12 +2178,11 @@ public partial class DashboardWindow : Window
             {
                 txtNuevaSeccion.Clear();
                 await RecargarSecciones();
-                lblSeccionesEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Sección creada." : res.Mensaje)}";
+                lblSeccionesEstado.Text = res.Ok($"Sección \"{nombre}\" creada.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblSeccionesEstado.Text = $"✗ Error {res.Codigo} al crear la sección: {detalle}";
+                lblSeccionesEstado.Text = res.Error("crear la sección");
             }
         }
         catch (Exception ex)
@@ -1428,7 +2197,10 @@ public partial class DashboardWindow : Window
 
     private async void EliminarSeccion(int id, string nombre)
     {
-        if (!Confirmar("Eliminar sección", $"¿Eliminar la sección \"{nombre}\"?")) return;
+        if (!Confirmar("Eliminar sección", $"¿Eliminar la sección \"{nombre}\"?", "Sí, eliminar",
+                "Esta acción no se puede deshacer. Si la sección tiene estudiantes, clases o actividades, " +
+                "la base no permitirá borrarla: en ese caso desactívala con «✎»."))
+            return;
 
         try
         {
@@ -1437,12 +2209,11 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 await RecargarSecciones();
-                lblSeccionesEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Sección eliminada." : res.Mensaje)}";
+                lblSeccionesEstado.Text = res.Ok("Sección eliminada.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblSeccionesEstado.Text = $"✗ Error {res.Codigo} al eliminar la sección: {detalle}";
+                lblSeccionesEstado.Text = res.Error("eliminar la sección");
             }
         }
         catch (Exception ex)
@@ -1481,81 +2252,63 @@ public partial class DashboardWindow : Window
         return Ui.Fila(num, info, btnEditar, btnEliminar);
     }
 
-    // Editar grado: PUT /api/Grados/{id} con { nombre, orden (opcional), activo }.
+    // Editar grado: PUT api/Grados/{id} con { nombre, orden (opcional), activo }.
+    // Valida y guarda dentro del diálogo (si falla, lo escrito se conserva).
     private async void EditarGrado(int id, string nombreActual, string ordenActual, bool activoActual)
     {
+        string? mensaje = null;
         var datos = DialogoCampos("Editar grado",
-            new[] { ("Nombre", nombreActual), ("Orden (0-255, opcional)", ordenActual) }, "Activo", activoActual);
+            new[] { ("Nombre", nombreActual), ("Orden (0-255, opcional)", ordenActual) }, "Activo", activoActual,
+            async (valores, activo) =>
+            {
+                var nombre = Validacion.Limpiar(valores[0]);
+                var error = ErrorGrado(nombre, id);
+                if (error != null) return error;
+                if (!LeerOrden(valores[1], out var orden)) return ErrorOrden;
+                if (activoActual && !activo
+                    && !Confirmar("Desactivar grado", $"¿Desactivar el grado \"{nombre}\"?", "Sí, desactivar",
+                        "Sus secciones no se borran ni se desactivan solas.", "BtnPrimario"))
+                    return "";
+
+                var res = await ApiService.PutAsync($"{Rutas.Grados}/{id}", CuerpoGrado(nombre, orden, activo));
+                if (!res.Exito) return res.Error("guardar el grado");
+                mensaje = res.Ok("Grado actualizado.");
+                return null;
+            }, new[] { Validacion.MaxGrado, 3 });
         if (datos is null) return;
 
-        var (valores, activo) = datos.Value;
-        var nombre = valores[0];
-        if (string.IsNullOrWhiteSpace(nombre))
-        {
-            lblGradosEstado.Text = "✗ El nombre del grado no puede quedar vacío.";
-            return;
-        }
-        if (!LeerOrden(valores[1], out var orden))
-        {
-            lblGradosEstado.Text = "✗ El orden debe ser un número entero entre 0 y 255 (o déjalo vacío).";
-            return;
-        }
-
-        try
-        {
-            var res = await ApiService.PutAsync($"{Rutas.Grados}/{id}", CuerpoGrado(nombre, orden, activo));
-            if (res.Exito)
-            {
-                await RecargarGrados();
-                lblGradosEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Grado actualizado." : res.Mensaje)}";
-            }
-            else
-            {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblGradosEstado.Text = $"✗ Error {res.Codigo} al editar el grado: {detalle}";
-            }
-        }
-        catch (Exception ex)
-        {
-            lblGradosEstado.Text = $"✗ No se pudo editar el grado: {ex.Message}";
-        }
+        await RecargarGrados();
+        await RecargarSecciones(); // las secciones muestran el nombre del grado
+        lblGradosEstado.Text = mensaje ?? "✓ Grado actualizado.";
     }
 
-    // Editar sección: PUT /api/Secciones/{id} con { gradoId, nombre, activa }.
+    // Editar sección: PUT api/Secciones/{id} con { gradoId, nombre, activa }.
     private async void EditarSeccion(int id, string nombreActual, bool activaActual)
     {
+        int gradoId = _gradoSeleccionadoId; // el gradoId se conserva: es el grado que se está gestionando
+        string? mensaje = null;
         var datos = DialogoCampos("Editar sección",
-            new[] { ("Nombre", nombreActual) }, "Activa", activaActual);
+            new[] { ("Nombre", nombreActual) }, "Activa", activaActual,
+            async (valores, activa) =>
+            {
+                var nombre = Validacion.Limpiar(valores[0]);
+                var error = ErrorSeccion(nombre, id, gradoId);
+                if (error != null) return error;
+                if (activaActual && !activa
+                    && !Confirmar("Desactivar sección", $"¿Desactivar la sección \"{nombre}\"?", "Sí, desactivar",
+                        "Dejará de ofrecerse para asignar clases y estudiantes. No se borra nada.", "BtnPrimario"))
+                    return "";
+
+                var res = await ApiService.PutAsync($"{Rutas.Secciones}/{id}",
+                    new { gradoId = gradoId, nombre = nombre, activa = activa });
+                if (!res.Exito) return res.Error("guardar la sección");
+                mensaje = res.Ok("Sección actualizada.");
+                return null;
+            }, new[] { Validacion.MaxSeccion });
         if (datos is null) return;
 
-        var (valores, activa) = datos.Value;
-        var nombre = valores[0];
-        if (string.IsNullOrWhiteSpace(nombre))
-        {
-            lblSeccionesEstado.Text = "✗ El nombre de la sección no puede quedar vacío.";
-            return;
-        }
-
-        try
-        {
-            // El gradoId se conserva: es el grado seleccionado que estamos gestionando.
-            var res = await ApiService.PutAsync($"{Rutas.Secciones}/{id}",
-                new { gradoId = _gradoSeleccionadoId, nombre = nombre, activa = activa });
-            if (res.Exito)
-            {
-                await RecargarSecciones();
-                lblSeccionesEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Sección actualizada." : res.Mensaje)}";
-            }
-            else
-            {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblSeccionesEstado.Text = $"✗ Error {res.Codigo} al editar la sección: {detalle}";
-            }
-        }
-        catch (Exception ex)
-        {
-            lblSeccionesEstado.Text = $"✗ No se pudo editar la sección: {ex.Message}";
-        }
+        await RecargarSecciones();
+        lblSeccionesEstado.Text = mensaje ?? "✓ Sección actualizada.";
     }
 
     // ===== PERÍODOS ACADÉMICOS =====
@@ -1568,17 +2321,18 @@ public partial class DashboardWindow : Window
 
             if (!res.Exito)
             {
+                _periodosData = null;
                 listaPeriodos.Items.Clear();
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblPeriodosEstado.Text = $"✗ Error {res.Codigo} al listar períodos: {detalle}";
+                lblPeriodosEstado.Text = res.Error("listar períodos");
                 return;
             }
 
-            var array = JArray.Parse(res.Contenido);
+            _periodosData = JArray.Parse(res.Contenido);
+            Mapear(_nombrePeriodo, _periodosData, it => it["nombre"]?.ToString());
 
             listaPeriodos.Items.Clear();
             int i = 1;
-            foreach (var item in array)
+            foreach (var item in _periodosData)
             {
                 int id = item["id"]?.Value<int>() ?? 0;
                 var nombre = item["nombre"]?.ToString() ?? "-";
@@ -1589,10 +2343,11 @@ public partial class DashboardWindow : Window
                 listaPeriodos.Items.Add(CrearFilaPeriodo(i++, id, nombre, fInicio, fFin, activo));
             }
 
-            lblPeriodosEstado.Text = $"✓ {array.Count} período(s).";
+            lblPeriodosEstado.Text = $"✓ {_periodosData.Count} período(s).";
         }
         catch (Exception ex)
         {
+            _periodosData = null;
             lblPeriodosEstado.Text = $"✗ No se pudieron cargar los períodos: {ex.Message}";
         }
     }
@@ -1635,12 +2390,22 @@ public partial class DashboardWindow : Window
         return null;
     }
 
+    // Nombre obligatorio, máx. 50 caracteres y único (UQ_Periodo_Nombre; la API no lo revisa).
+    private string? ErrorPeriodo(string nombre, int id) =>
+        Validacion.Texto(nombre, "Nombre del período", Validacion.MaxPeriodo)
+        ?? (Validacion.Duplicado(_periodosData, "nombre", nombre, id)
+            ? $"✗ Ya existe un período llamado \"{nombre}\"."
+            : null);
+
     private async void CrearPeriodo_Click(object sender, RoutedEventArgs e)
     {
-        var nombre = txtNombrePeriodo.Text.Trim();
-        if (string.IsNullOrWhiteSpace(nombre))
+        var nombre = Validacion.Limpiar(txtNombrePeriodo.Text);
+        txtNombrePeriodo.Text = nombre;
+        var error = ErrorPeriodo(nombre, 0);
+        if (error != null)
         {
-            lblPeriodosEstado.Text = "✗ Escribe un nombre para el período.";
+            lblPeriodosEstado.Text = error;
+            txtNombrePeriodo.Focus();
             return;
         }
         var fInicio = NormalizarFecha(txtFechaInicio.Text);
@@ -1649,6 +2414,7 @@ public partial class DashboardWindow : Window
         if (errorFechas != null)
         {
             lblPeriodosEstado.Text = errorFechas;
+            (fInicio is null ? txtFechaInicio : txtFechaFin).Focus();
             return;
         }
 
@@ -1670,12 +2436,11 @@ public partial class DashboardWindow : Window
                 txtFechaFin.Clear();
                 chkActivoPeriodo.IsChecked = true;
                 await RecargarPeriodos();
-                lblPeriodosEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Período creado." : res.Mensaje)}";
+                lblPeriodosEstado.Text = res.Ok($"Período \"{nombre}\" creado.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblPeriodosEstado.Text = $"✗ Error {res.Codigo} al crear el período: {detalle}";
+                lblPeriodosEstado.Text = res.Error("crear el período");
             }
         }
         catch (Exception ex)
@@ -1688,63 +2453,55 @@ public partial class DashboardWindow : Window
         }
     }
 
-    // Editar período: PUT /api/PeriodosAcademicos/{id} con { nombre, fechaInicio, fechaFin, activo }.
+    // Editar período: PUT api/PeriodosAcademicos/{id} con { nombre, fechaInicio, fechaFin, activo }.
+    // Valida y guarda dentro del diálogo (si falla, lo escrito se conserva).
     private async void EditarPeriodo(int id, string nombreActual, string fInicioActual, string fFinActual, bool activoActual)
     {
+        string? mensaje = null;
         var datos = DialogoCampos("Editar período",
             new[]
             {
                 ("Nombre", nombreActual),
                 ("Fecha inicio (AAAA-MM-DD)", fInicioActual),
                 ("Fecha fin (AAAA-MM-DD)", fFinActual)
-            }, "Activo", activoActual);
+            }, "Activo", activoActual,
+            async (valores, activo) =>
+            {
+                var nombre = Validacion.Limpiar(valores[0]);
+                var error = ErrorPeriodo(nombre, id);
+                if (error != null) return error;
+                var fInicio = NormalizarFecha(valores[1]);
+                var fFin = NormalizarFecha(valores[2]);
+                var errorFechas = ValidarFechasPeriodo(fInicio, fFin);
+                if (errorFechas != null) return errorFechas;
+                if (activoActual && !activo
+                    && !Confirmar("Desactivar período", $"¿Desactivar el período \"{nombre}\"?", "Sí, desactivar",
+                        "No se borra nada; puedes volver a activarlo cuando quieras.", "BtnPrimario"))
+                    return "";
+
+                var res = await ApiService.PutAsync($"{Rutas.PeriodosAcademicos}/{id}", new
+                {
+                    nombre = nombre,
+                    fechaInicio = fInicio,
+                    fechaFin = fFin,
+                    activo = activo
+                });
+                if (!res.Exito) return res.Error("guardar el período");
+                mensaje = res.Ok("Período actualizado.");
+                return null;
+            }, new[] { Validacion.MaxPeriodo, 10, 10 });
         if (datos is null) return;
 
-        var (valores, activo) = datos.Value;
-        var nombre = valores[0];
-        var fInicio = NormalizarFecha(valores[1]);
-        var fFin = NormalizarFecha(valores[2]);
-        if (string.IsNullOrWhiteSpace(nombre))
-        {
-            lblPeriodosEstado.Text = "✗ El nombre del período no puede quedar vacío.";
-            return;
-        }
-        var errorFechas = ValidarFechasPeriodo(fInicio, fFin);
-        if (errorFechas != null)
-        {
-            lblPeriodosEstado.Text = errorFechas;
-            return;
-        }
-
-        try
-        {
-            var res = await ApiService.PutAsync($"{Rutas.PeriodosAcademicos}/{id}", new
-            {
-                nombre = nombre,
-                fechaInicio = fInicio,
-                fechaFin = fFin,
-                activo = activo
-            });
-            if (res.Exito)
-            {
-                await RecargarPeriodos();
-                lblPeriodosEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Período actualizado." : res.Mensaje)}";
-            }
-            else
-            {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblPeriodosEstado.Text = $"✗ Error {res.Codigo} al editar el período: {detalle}";
-            }
-        }
-        catch (Exception ex)
-        {
-            lblPeriodosEstado.Text = $"✗ No se pudo editar el período: {ex.Message}";
-        }
+        await RecargarPeriodos();
+        lblPeriodosEstado.Text = mensaje ?? "✓ Período actualizado.";
     }
 
     private async void EliminarPeriodo(int id, string nombre)
     {
-        if (!Confirmar("Eliminar período", $"¿Eliminar el período \"{nombre}\"?")) return;
+        if (!Confirmar("Eliminar período", $"¿Eliminar el período \"{nombre}\"?", "Sí, eliminar",
+                "Esta acción no se puede deshacer. Si el período ya tiene clases o actividades, la base " +
+                "no permitirá borrarlo: en ese caso desactívalo con «Editar»."))
+            return;
 
         try
         {
@@ -1752,12 +2509,11 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 await RecargarPeriodos();
-                lblPeriodosEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Período eliminado." : res.Mensaje)}";
+                lblPeriodosEstado.Text = res.Ok("Período eliminado.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblPeriodosEstado.Text = $"✗ Error {res.Codigo} al eliminar el período: {detalle}";
+                lblPeriodosEstado.Text = res.Error("eliminar el período");
             }
         }
         catch (Exception ex)
@@ -1781,13 +2537,19 @@ public partial class DashboardWindow : Window
     }
 
     // Diálogo genérico: N campos de texto + un check. Devuelve (valores, activo) o null.
+    // Con 'alGuardar' el diálogo valida y guarda SIN cerrarse: recibe los valores (recortados)
+    // y devuelve null si salió bien (se cierra) o el error a mostrar dentro del diálogo, que
+    // sigue abierto con lo escrito. "" = seguir abierto sin mensaje (p. ej. canceló una confirmación).
     private (string[] valores, bool activo)? DialogoCampos(
-        string titulo, (string etiqueta, string valor)[] campos, string activoLabel, bool activoInicial)
+        string titulo, (string etiqueta, string valor)[] campos, string activoLabel, bool activoInicial,
+        Func<string[], bool, System.Threading.Tasks.Task<string?>>? alGuardar = null, int[]? maximos = null)
     {
         (string[], bool)? resultado = null;
 
         var cont = new StackPanel();
-        var cajas = campos.Select(c => CampoDialogo(cont, c.etiqueta, c.valor)).ToList();
+        var cajas = campos
+            .Select((c, i) => CampoDialogo(cont, c.etiqueta, c.valor, maximos?.ElementAtOrDefault(i) ?? 0))
+            .ToList();
 
         var chk = new CheckBox
         {
@@ -1796,25 +2558,111 @@ public partial class DashboardWindow : Window
             Margin = new Thickness(2, 4, 0, 0)
         };
         cont.Children.Add(chk);
+        var error = CajaErrorDialogo(cont);
 
         var dlg = NuevoDialogo(titulo, "Modifica los datos y pulsa «Guardar».", cont,
             out var btnCancelar, out var btnGuardar, "Guardar", "BtnPrimario");
-        btnCancelar.Click += (_, _) => { dlg.DialogResult = false; };
-        btnGuardar.Click += (_, _) =>
+        ConfigurarGuardado(dlg, btnCancelar, btnGuardar, error, async () =>
         {
-            resultado = (cajas.Select(c => c.Text.Trim()).ToArray(), chk.IsChecked == true);
-            dlg.DialogResult = true;
-        };
-        dlg.KeyDown += (_, e) => { if (e.Key == Key.Escape) dlg.DialogResult = false; };
+            var valores = cajas.Select(c => c.Text.Trim()).ToArray();
+            bool activo = chk.IsChecked == true;
+            var fallo = alGuardar is null ? null : await alGuardar(valores, activo);
+            if (fallo is null) resultado = (valores, activo);
+            return fallo;
+        });
         if (cajas.Count > 0) dlg.Loaded += (_, _) => { cajas[0].Focus(); cajas[0].SelectAll(); };
 
         var ok = dlg.ShowDialog();
         return ok == true ? resultado : null;
     }
 
-    // Diálogo de confirmación (para eliminar o quitar). Devuelve true si el usuario acepta.
+    // Diálogo con una lista desplegable. 'alGuardar' recibe el id elegido y devuelve null si
+    // se guardó (se cierra) o el error a mostrar (sigue abierto). Devuelve true si se guardó.
+    private bool DialogoSeleccion(string titulo, string subtitulo, string etiqueta, JArray datos,
+        Func<JToken, string?> texto, int elegido, Func<int, System.Threading.Tasks.Task<string?>> alGuardar)
+    {
+        var cont = new StackPanel();
+        cont.Children.Add(new TextBlock { Text = etiqueta, Style = (Style)FindResource("Etiqueta") });
+        var combo = new ComboBox { Margin = new Thickness(0, 0, 0, 4) };
+        LlenarCombo(combo, datos, texto);
+        if (elegido > 0) SeleccionarEnCombo(combo, elegido);
+        cont.Children.Add(combo);
+        var error = CajaErrorDialogo(cont);
+        if (combo.Items.Count == 0) error.Text = "✗ No hay opciones activas para elegir.";
+
+        var dlg = NuevoDialogo(titulo, subtitulo, cont, out var btnCancelar, out var btnGuardar,
+            "Guardar", "BtnPrimario");
+        ConfigurarGuardado(dlg, btnCancelar, btnGuardar, error, () =>
+        {
+            int id = TagCombo(combo);
+            return id <= 0
+                ? System.Threading.Tasks.Task.FromResult<string?>("✗ Elige una opción de la lista.")
+                : alGuardar(id);
+        });
+        dlg.Loaded += (_, _) => combo.Focus();
+        return dlg.ShowDialog() == true;
+    }
+
+    // Botones Cancelar / Guardar de un diálogo. Mientras se guarda, todo queda bloqueado
+    // (sin doble clic ni cierre con Esc) y el botón muestra un indicador de carga.
+    private static void ConfigurarGuardado(Window dlg, Button btnCancelar, Button btnGuardar, TextBlock error,
+        Func<System.Threading.Tasks.Task<string?>> guardar)
+    {
+        bool guardando = false, cerrado = false;
+        var textoGuardar = btnGuardar.Content;
+        dlg.Closed += (_, _) => cerrado = true;
+        btnCancelar.Click += (_, _) => { if (!guardando) dlg.DialogResult = false; };
+        dlg.KeyDown += (_, e) => { if (e.Key == Key.Escape && !guardando) dlg.DialogResult = false; };
+        btnGuardar.Click += async (_, _) =>
+        {
+            if (guardando) return;
+            guardando = true;
+            error.Text = "";
+            btnGuardar.IsEnabled = btnCancelar.IsEnabled = false;
+            btnGuardar.Content = Ui.Cargando("Guardando…", Paleta.AmarilloTexto);
+
+            string? fallo;
+            try { fallo = await guardar(); }
+            catch (Exception ex) { fallo = $"✗ Ocurrió un error inesperado: {ex.Message}"; }
+
+            guardando = false;
+            if (cerrado) return; // se cerró mientras guardaba (p. ej. sesión expirada)
+            if (fallo is null)
+            {
+                dlg.DialogResult = true;
+                return;
+            }
+            error.Text = fallo;
+            btnGuardar.Content = textoGuardar;
+            btnGuardar.IsEnabled = btnCancelar.IsEnabled = true;
+        };
+    }
+
+    // Cajita de error dentro de un diálogo (oculta mientras no haya texto).
+    private static TextBlock CajaErrorDialogo(StackPanel cont)
+    {
+        var (fuerte, suave) = Ui.Colores(Tono.Coral);
+        var texto = new TextBlock { Style = (Style)Application.Current.FindResource("TextoEstado") };
+        var caja = new Border
+        {
+            Style = (Style)Application.Current.FindResource("CajaEstado"),
+            Background = suave,
+            BorderBrush = fuerte,
+            Margin = new Thickness(0, 12, 0, 0),
+            Visibility = Visibility.Collapsed,
+            Child = texto
+        };
+        DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock))
+            .AddValueChanged(texto, (_, _) =>
+                caja.Visibility = string.IsNullOrWhiteSpace(texto.Text) ? Visibility.Collapsed : Visibility.Visible);
+        cont.Children.Add(caja);
+        return texto;
+    }
+
+    // Diálogo de confirmación (eliminar, dar de baja, cambiar…). Devuelve true si el usuario acepta.
     private bool Confirmar(string titulo, string mensaje, string textoAceptar = "Sí, eliminar",
-        string aviso = "Esta acción no se puede deshacer.")
+        string aviso = "Esta acción no se puede deshacer.", string estiloAceptar = "BtnPeligro",
+        string icono = "!", Tono tono = Tono.Coral)
     {
         var cont = new StackPanel();
         cont.Children.Add(new TextBlock
@@ -1834,7 +2682,7 @@ public partial class DashboardWindow : Window
         });
 
         var dlg = NuevoDialogo(titulo, null, cont,
-            out var btnCancelar, out var btnAceptar, textoAceptar, "BtnPeligro", icono: "!");
+            out var btnCancelar, out var btnAceptar, textoAceptar, estiloAceptar, icono, tono);
         btnCancelar.Click += (_, _) => { dlg.DialogResult = false; };
         btnAceptar.Click += (_, _) => { dlg.DialogResult = true; };
         dlg.KeyDown += (_, e) => { if (e.Key == Key.Escape) dlg.DialogResult = false; };
@@ -1847,14 +2695,16 @@ public partial class DashboardWindow : Window
     // título, el contenido recibido y los botones Cancelar / Aceptar abajo a la derecha.
     private Window NuevoDialogo(string titulo, string? subtitulo, StackPanel contenido,
         out Button btnCancelar, out Button btnAceptar, string textoAceptar, string estiloAceptar,
-        string? icono = null)
+        string? icono = null, Tono tonoIcono = Tono.Coral)
     {
+        // Si ya hay un diálogo abierto (p. ej. una confirmación al guardar), el nuevo va encima de él.
+        var dueno = OwnedWindows.Cast<Window>().LastOrDefault(w => w.IsActive) ?? (Window)this;
         var dlg = new Window
         {
             Title = titulo,
             Width = 500,
             SizeToContent = SizeToContent.Height,
-            Owner = this,
+            Owner = dueno,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             WindowStyle = WindowStyle.None,
             AllowsTransparency = true,
@@ -1871,7 +2721,7 @@ public partial class DashboardWindow : Window
         var cabecera = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 18) };
         if (icono != null)
         {
-            var (fuerte, suave) = Ui.Colores(Tono.Coral);
+            var (fuerte, suave) = Ui.Colores(tonoIcono);
             cabecera.Children.Add(new Border
             {
                 Width = 44,
@@ -1900,6 +2750,7 @@ public partial class DashboardWindow : Window
                 FontSize = 13,
                 Foreground = Paleta.Apagado,
                 TextWrapping = TextWrapping.Wrap,
+                MaxWidth = 380,
                 Margin = new Thickness(0, 3, 0, 0)
             });
         cabecera.Children.Add(textos);
@@ -1951,10 +2802,12 @@ public partial class DashboardWindow : Window
     }
 
     // Agrega a 'cont' una etiqueta + caja de texto (con el estilo del tema) y devuelve la caja.
-    private TextBox CampoDialogo(StackPanel cont, string etiqueta, string valor)
+    // 'maximo' > 0 limita lo que se puede escribir (largo de la columna en la base).
+    private TextBox CampoDialogo(StackPanel cont, string etiqueta, string valor, int maximo = 0)
     {
         cont.Children.Add(new TextBlock { Text = etiqueta, Style = (Style)FindResource("Etiqueta") });
         var caja = new TextBox { Text = valor, Margin = new Thickness(0, 0, 0, 14) };
+        if (maximo > 0) caja.MaxLength = maximo;
         cont.Children.Add(caja);
         return caja;
     }
@@ -1967,7 +2820,8 @@ public partial class DashboardWindow : Window
         {
             lblEstado, lblMateriasEstado, lblUsuariosEstado, lblGradosEstado, lblSeccionesEstado,
             lblPeriodosEstado, lblAsignacionesEstado, lblEstudiantesEstado, lblTemasEstado, lblSubtemasEstado,
-            lblPreguntaEstado, lblPreguntasEstado, lblActividadesEstado, lblAsignarEstado, lblPublicarEstado
+            lblPreguntaEstado, lblPreguntasEstado, lblActividadesEstado, lblAsignarEstado, lblPublicarEstado,
+            lblEstAdminEstado, lblDocentesEstado, lblClasesDocenteEstado
         };
         var descriptor = DependencyPropertyDescriptor.FromProperty(TextBlock.TextProperty, typeof(TextBlock));
         foreach (var lbl in etiquetas)
@@ -1987,13 +2841,17 @@ public partial class DashboardWindow : Window
         }
     }
 
-    // Crea una materia (POST real a la API) y refresca la lista para verla al instante.
+    // Crea una materia (POST api/Materias) y refresca la lista para verla al instante.
+    // Si algo falla, lo escrito se conserva para poder corregirlo.
     private async void CrearMateria_Click(object sender, RoutedEventArgs e)
     {
-        var nombre = txtNuevaMateria.Text.Trim();
-        if (string.IsNullOrWhiteSpace(nombre))
+        var nombre = Validacion.Limpiar(txtNuevaMateria.Text);
+        txtNuevaMateria.Text = nombre; // espacios sobrantes fuera (y se ve en el campo)
+        var error = ErrorMateria(nombre, 0);
+        if (error != null)
         {
-            lblMateriasEstado.Text = "✗ Escribe un nombre para la materia.";
+            lblMateriasEstado.Text = error;
+            txtNuevaMateria.Focus();
             return;
         }
 
@@ -2007,12 +2865,11 @@ public partial class DashboardWindow : Window
             {
                 txtNuevaMateria.Clear();
                 await RecargarMaterias(); // refresca => aparece la nueva
-                lblMateriasEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Materia creada." : res.Mensaje)}";
+                lblMateriasEstado.Text = res.Ok($"Materia \"{nombre}\" creada.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblMateriasEstado.Text = $"✗ Error {res.Codigo} al crear la materia: {detalle}";
+                lblMateriasEstado.Text = res.Error("crear la materia");
             }
         }
         catch (Exception ex)
@@ -2025,28 +2882,56 @@ public partial class DashboardWindow : Window
         }
     }
 
-    // Crea un usuario (POST /api/Usuarios) y refresca la lista de usuarios.
+    // Nombre obligatorio, máx. 80 caracteres y único (la base tiene UQ_Materia_Nombre y la API
+    // no lo revisa: un duplicado terminaría en error 500).
+    private string? ErrorMateria(string nombre, int id) =>
+        Validacion.Texto(nombre, "Nombre de la materia", Validacion.MaxMateria)
+        ?? (Validacion.Duplicado(_materiasData, "nombre", nombre, id)
+            ? $"✗ Ya existe una materia llamada \"{nombre}\"."
+            : null);
+
+    // Usuario o correo con formato válido y que no lo tenga otro usuario.
+    private string? ErrorCorreoUsuario(string correo, int id) =>
+        Validacion.CorreoOUsuario(correo)
+        ?? (Validacion.Duplicado(_usuariosData, "correoOUsuario", correo, id)
+            ? $"✗ Ya existe un usuario con el usuario o correo \"{correo}\"."
+            : null);
+
+    private string NombreRol(int rolId) => _roles.TryGetValue(rolId, out var r) ? r.codigo : $"rol #{rolId}";
+
+    // Crea un usuario (POST api/Usuarios) y refresca la lista. Esa ruta de la API no valida
+    // los datos, así que aquí se aplican las mismas reglas que usa la API en Auth/registro.
     private async void CrearUsuario_Click(object sender, RoutedEventArgs e)
     {
-        var nombreCompleto = txtNombreCompleto.Text.Trim();
+        // Espacios sobrantes fuera (y se ve en los campos). La contraseña no se recorta.
+        var nombreCompleto = Validacion.Limpiar(txtNombreCompleto.Text);
         var correoOUsuario = txtCorreoUsuario.Text.Trim();
+        txtNombreCompleto.Text = nombreCompleto;
+        txtCorreoUsuario.Text = correoOUsuario;
         var clave = pwdClave.Password;
+        int rolId = TagCombo(cmbRol);
 
-        if (string.IsNullOrWhiteSpace(nombreCompleto) ||
-            string.IsNullOrWhiteSpace(correoOUsuario) ||
-            string.IsNullOrWhiteSpace(clave))
+        Control campo = txtNombreCompleto;
+        var error = Validacion.NombreCompleto(nombreCompleto);
+        if (error is null) { campo = txtCorreoUsuario; error = ErrorCorreoUsuario(correoOUsuario, 0); }
+        if (error is null) { campo = pwdClave; error = Validacion.ClaveNueva(clave); }
+        if (error is null && rolId <= 0)
         {
-            lblUsuariosEstado.Text = "✗ Completa nombre, usuario/correo y contraseña.";
+            campo = cmbRol;
+            error = _roles.Count == 0 ? "✗ No se pudieron cargar los roles de la API; no se puede elegir rol." : "✗ Elige un rol.";
+        }
+        if (error != null)
+        {
+            lblUsuariosEstado.Text = error;
+            campo.Focus();
             return;
         }
 
-        if (cmbRol.SelectedIndex < 0)
-        {
-            lblUsuariosEstado.Text = "✗ Elige un rol.";
+        // Una cuenta de administrador tiene acceso total: se confirma antes de crearla.
+        if (NombreRol(rolId) == "ADMIN"
+            && !Confirmar("Crear administrador", $"¿Crear a \"{nombreCompleto}\" con rol ADMIN?", "Sí, crear",
+                "Tendrá acceso total a la gestión de la plataforma.", "BtnPrimario"))
             return;
-        }
-        // ComboBox: 0=ADMIN, 1=DOCENTE, 2=ESTUDIANTE  =>  rolId 1, 2, 3
-        int rolId = cmbRol.SelectedIndex + 1;
 
         btnCrearUsuario.IsEnabled = false;
         try
@@ -2065,12 +2950,11 @@ public partial class DashboardWindow : Window
                 txtCorreoUsuario.Clear();
                 pwdClave.Clear();
                 await RecargarUsuarios(); // refresca => aparece el nuevo usuario
-                lblUsuariosEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Usuario creado." : res.Mensaje)}";
+                lblUsuariosEstado.Text = res.Ok($"Usuario \"{nombreCompleto}\" creado.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblUsuariosEstado.Text = $"✗ Error {res.Codigo} al crear el usuario: {detalle}";
+                lblUsuariosEstado.Text = res.Error("crear el usuario");
             }
         }
         catch (Exception ex)
@@ -2083,68 +2967,86 @@ public partial class DashboardWindow : Window
         }
     }
 
-    // Fila de usuario con botones Editar / Eliminar (solo ADMIN).
+    // Fila de usuario con botones Editar / Dar de baja (o Reactivar) / Eliminar (solo ADMIN).
     private Border CrearFilaUsuario(int num, int id, string nombreCompleto, string correo,
         string rol, int rolId, bool activo)
     {
-        // Nombre + etiqueta de estado (verde activo / coral inactivo), y debajo correo · rol.
+        // Nombre + etiqueta de estado (verde activo / coral de baja), y debajo correo · rol.
         var sub = string.IsNullOrWhiteSpace(correo) ? rol : $"{correo}  ·  {rol}";
-        var info = Ui.Info(nombreCompleto, sub,
-            activo ? Ui.Pill("ACTIVO", Tono.Verde) : Ui.Pill("INACTIVO", Tono.Coral));
+        var info = Ui.Info(nombreCompleto, sub, PillEstado(activo));
 
         var btnEditar = Ui.Accion("✎ Editar", Tono.Morado);
         btnEditar.Click += (_, _) => EditarUsuario(id, nombreCompleto, correo, rolId, activo);
-        var btnEliminar = Ui.Accion("🗑", Tono.Coral, "Eliminar usuario");
+        var btnEliminar = Ui.Accion("🗑", Tono.Coral, "Eliminar usuario definitivamente");
         btnEliminar.Click += (_, _) => EliminarUsuario(id, nombreCompleto);
+        if (id == ApiService.UsuarioId)
+        {
+            btnEliminar.IsEnabled = false;
+            btnEliminar.ToolTip = "No puedes eliminar tu propia cuenta.";
+            ToolTipService.SetShowOnDisabled(btnEliminar, true);
+        }
 
-        return Ui.Fila(num, info, btnEditar, btnEliminar);
+        return Ui.Fila(num, info, btnEditar, BotonEstado(id, nombreCompleto, activo, lblUsuariosEstado), btnEliminar);
     }
 
-    // Editar usuario: PUT /api/Usuarios/{id} con { nombreCompleto, correoOUsuario, rolId, activo }.
-    // NO cambia la contraseña.
+    // Editar usuario: PUT api/Usuarios/{id} con { nombreCompleto, correoOUsuario, rolId, activo }.
+    // NO cambia la contraseña. Valida y guarda dentro del diálogo (si falla, lo escrito se conserva).
     private async void EditarUsuario(int id, string nombreActual, string correoActual, int rolIdActual, bool activoActual)
     {
-        var datos = PedirDatosUsuario(nombreActual, correoActual, rolIdActual, activoActual);
-        if (datos is null) return; // canceló
-
-        var (nombre, correo, rolId, activo) = datos.Value;
-        if (string.IsNullOrWhiteSpace(nombre) || string.IsNullOrWhiteSpace(correo))
-        {
-            lblUsuariosEstado.Text = "✗ Nombre y usuario/correo no pueden quedar vacíos.";
-            return;
-        }
-
-        try
-        {
-            var res = await ApiService.PutAsync($"{Rutas.Usuarios}/{id}", new
+        string? mensaje = null;
+        var guardado = PedirDatosUsuario(nombreActual, correoActual, rolIdActual, activoActual,
+            async (nombre, correo, rolId, activo) =>
             {
-                nombreCompleto = nombre,
-                correoOUsuario = correo,
-                rolId = rolId,
-                activo = activo
+                var error = Validacion.NombreCompleto(nombre) ?? ErrorCorreoUsuario(correo, id)
+                            ?? (rolId <= 0 ? "✗ Elige un rol." : null);
+                if (error != null) return error;
+
+                // El ADMIN no puede quitarse a sí mismo el acceso.
+                if (id == ApiService.UsuarioId && !activo)
+                    return "✗ No puedes desactivar tu propia cuenta: perderías el acceso.";
+                if (id == ApiService.UsuarioId && rolId != rolIdActual)
+                    return "✗ No puedes cambiar tu propio rol: perderías el acceso de administrador.";
+
+                // Cambios delicados: se confirman antes de guardar ("" = canceló, el diálogo sigue abierto).
+                if (rolId != rolIdActual
+                    && !Confirmar("Cambiar rol",
+                        $"¿Cambiar el rol de \"{nombre}\" de {NombreRol(rolIdActual)} a {NombreRol(rolId)}?",
+                        "Sí, cambiar", "Cambia lo que esta persona puede hacer en la plataforma.", "BtnPrimario"))
+                    return "";
+                if (activoActual && !activo
+                    && !Confirmar("Dar de baja", $"¿Dar de baja a \"{nombre}\"?", "Sí, dar de baja",
+                        "No podrá iniciar sesión. No se borra ningún dato y puedes reactivarlo cuando quieras."))
+                    return "";
+
+                var res = await ApiService.PutAsync($"{Rutas.Usuarios}/{id}", new
+                {
+                    nombreCompleto = nombre,
+                    correoOUsuario = correo,
+                    rolId = rolId,
+                    activo = activo
+                });
+                if (!res.Exito) return res.Error("guardar los cambios del usuario");
+                mensaje = res.Ok("Usuario actualizado.");
+                return null;
             });
+        if (!guardado) return; // canceló
 
-            if (res.Exito)
-            {
-                await RecargarUsuarios();
-                lblUsuariosEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Usuario actualizado." : res.Mensaje)}";
-            }
-            else
-            {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblUsuariosEstado.Text = $"✗ Error {res.Codigo} al editar el usuario: {detalle}";
-            }
-        }
-        catch (Exception ex)
-        {
-            lblUsuariosEstado.Text = $"✗ No se pudo editar el usuario: {ex.Message}";
-        }
+        await RecargarUsuarios();
+        lblUsuariosEstado.Text = mensaje ?? "✓ Usuario actualizado.";
     }
 
-    // Eliminar usuario: DELETE /api/Usuarios/{id} (con confirmación).
+    // Eliminar usuario: DELETE api/Usuarios/{id} (con confirmación). Borra el registro; para
+    // solo impedir el acceso está «Dar de baja».
     private async void EliminarUsuario(int id, string nombre)
     {
-        if (!Confirmar("Eliminar usuario", $"¿Eliminar al usuario \"{nombre}\"?")) return;
+        if (id == ApiService.UsuarioId)
+        {
+            lblUsuariosEstado.Text = "✗ No puedes eliminar tu propia cuenta.";
+            return;
+        }
+        if (!Confirmar("Eliminar usuario", $"¿Eliminar definitivamente al usuario \"{nombre}\"?", "Sí, eliminar",
+                "Esta acción no se puede deshacer. Si solo quieres que no pueda entrar, usa «Dar de baja»: conserva sus datos."))
+            return;
 
         try
         {
@@ -2153,12 +3055,11 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 await RecargarUsuarios();
-                lblUsuariosEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Usuario eliminado." : res.Mensaje)}";
+                lblUsuariosEstado.Text = res.Ok("Usuario eliminado.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblUsuariosEstado.Text = $"✗ Error {res.Codigo} al eliminar el usuario: {detalle}";
+                lblUsuariosEstado.Text = res.Error("eliminar el usuario");
             }
         }
         catch (Exception ex)
@@ -2168,22 +3069,18 @@ public partial class DashboardWindow : Window
     }
 
     // Diálogo para editar un usuario (nombre, correo, rol, activo). No pide contraseña.
-    // Devuelve (nombre, correo, rolId, activo) o null si se cancela.
-    private (string nombre, string correo, int rolId, bool activo)? PedirDatosUsuario(
-        string nombreActual, string correoActual, int rolIdActual, bool activoActual)
+    // 'alGuardar' valida y guarda sin cerrar el diálogo (ver DialogoCampos). Devuelve true si se guardó.
+    private bool PedirDatosUsuario(string nombreActual, string correoActual, int rolIdActual, bool activoActual,
+        Func<string, string, int, bool, System.Threading.Tasks.Task<string?>> alGuardar)
     {
-        (string, string, int, bool)? resultado = null;
-
         var cont = new StackPanel();
-        var cajaNombre = CampoDialogo(cont, "Nombre completo", nombreActual);
-        var cajaCorreo = CampoDialogo(cont, "Usuario o correo", correoActual);
+        var cajaNombre = CampoDialogo(cont, "Nombre completo", nombreActual, Validacion.MaxNombreCompleto);
+        var cajaCorreo = CampoDialogo(cont, "Usuario o correo", correoActual, Validacion.MaxCorreoOUsuario);
 
-        // Rol
+        // Rol: los roles reales de la API (si el actual no se conoce, se conserva igual).
         cont.Children.Add(new TextBlock { Text = "Rol", Style = (Style)FindResource("Etiqueta") });
         var combo = new ComboBox { Margin = new Thickness(0, 0, 0, 14) };
-        foreach (var rol in Roles) combo.Items.Add(new ComboBoxItem { Content = rol });
-        // rolId 1..3 => índice 0..2; si viene fuera de rango, ESTUDIANTE por defecto.
-        combo.SelectedIndex = (rolIdActual >= 1 && rolIdActual <= Roles.Length) ? rolIdActual - 1 : 2;
+        LlenarComboRoles(combo, rolIdActual);
         cont.Children.Add(combo);
 
         var chkActivo = new CheckBox
@@ -2193,22 +3090,20 @@ public partial class DashboardWindow : Window
             Margin = new Thickness(2, 4, 0, 0)
         };
         cont.Children.Add(chkActivo);
+        var error = CajaErrorDialogo(cont);
 
         var dlg = NuevoDialogo("Editar usuario", "La contraseña no se modifica desde aquí.", cont,
             out var btnCancelar, out var btnGuardar, "Guardar", "BtnPrimario");
-        btnCancelar.Click += (_, _) => { dlg.DialogResult = false; };
-        btnGuardar.Click += (_, _) =>
+        ConfigurarGuardado(dlg, btnCancelar, btnGuardar, error, () =>
         {
-            int rolId = combo.SelectedIndex + 1; // 0..2 => 1..3
-            resultado = (cajaNombre.Text.Trim(), cajaCorreo.Text.Trim(), rolId, chkActivo.IsChecked == true);
-            dlg.DialogResult = true;
-        };
-
-        dlg.KeyDown += (_, e) => { if (e.Key == Key.Escape) dlg.DialogResult = false; };
+            // Espacios sobrantes fuera, y se ve en los campos.
+            cajaNombre.Text = Validacion.Limpiar(cajaNombre.Text);
+            cajaCorreo.Text = cajaCorreo.Text.Trim();
+            return alGuardar(cajaNombre.Text, cajaCorreo.Text, TagCombo(combo), chkActivo.IsChecked == true);
+        });
         dlg.Loaded += (_, _) => { cajaNombre.Focus(); cajaNombre.SelectAll(); };
 
-        var ok = dlg.ShowDialog();
-        return ok == true ? resultado : null;
+        return dlg.ShowDialog() == true;
     }
 
     // El DOCENTE eligió una materia: abre el panel de temas y carga sus temas.
@@ -2262,8 +3157,7 @@ public partial class DashboardWindow : Window
             if (!res.Exito)
             {
                 listaTemas.Items.Clear();
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblTemasEstado.Text = $"✗ Error {res.Codigo} al listar temas: {detalle}";
+                lblTemasEstado.Text = res.Error("listar temas");
                 return;
             }
 
@@ -2316,12 +3210,11 @@ public partial class DashboardWindow : Window
             {
                 txtNuevoTema.Clear();
                 await CargarTemas(); // refresca => aparece el nuevo tema
-                lblTemasEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Tema creado." : res.Mensaje)}";
+                lblTemasEstado.Text = res.Ok("Tema creado.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblTemasEstado.Text = $"✗ Error {res.Codigo} al crear el tema: {detalle}";
+                lblTemasEstado.Text = res.Error("crear el tema");
             }
         }
         catch (Exception ex)
@@ -2392,12 +3285,11 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 LimpiarFormularioPregunta();
-                lblPreguntaEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Pregunta creada." : res.Mensaje)}";
+                lblPreguntaEstado.Text = res.Ok("Pregunta creada.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblPreguntaEstado.Text = $"✗ Error {res.Codigo} al crear la pregunta: {detalle}";
+                lblPreguntaEstado.Text = res.Error("crear la pregunta");
             }
         }
         catch (Exception ex)
@@ -2450,12 +3342,11 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 await CargarTemas();
-                lblTemasEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Tema actualizado." : res.Mensaje)}";
+                lblTemasEstado.Text = res.Ok("Tema actualizado.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblTemasEstado.Text = $"✗ Error {res.Codigo} al editar el tema: {detalle}";
+                lblTemasEstado.Text = res.Error("editar el tema");
             }
         }
         catch (Exception ex) { lblTemasEstado.Text = $"✗ No se pudo editar el tema: {ex.Message}"; }
@@ -2478,12 +3369,11 @@ public partial class DashboardWindow : Window
                     panelPregunta.Visibility = Visibility.Collapsed;
                 }
                 await CargarTemas();
-                lblTemasEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Tema eliminado." : res.Mensaje)}";
+                lblTemasEstado.Text = res.Ok("Tema eliminado.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblTemasEstado.Text = $"✗ Error {res.Codigo} al eliminar el tema: {detalle}";
+                lblTemasEstado.Text = res.Error("eliminar el tema");
             }
         }
         catch (Exception ex) { lblTemasEstado.Text = $"✗ No se pudo eliminar el tema: {ex.Message}"; }
@@ -2500,8 +3390,7 @@ public partial class DashboardWindow : Window
             if (!res.Exito)
             {
                 listaSubtemas.Items.Clear();
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblSubtemasEstado.Text = $"✗ Error {res.Codigo} al listar subtemas: {detalle}";
+                lblSubtemasEstado.Text = res.Error("listar subtemas");
                 return;
             }
             var array = JArray.Parse(res.Contenido);
@@ -2535,12 +3424,11 @@ public partial class DashboardWindow : Window
             {
                 txtNuevoSubtema.Clear();
                 await RecargarSubtemas();
-                lblSubtemasEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Subtema creado." : res.Mensaje)}";
+                lblSubtemasEstado.Text = res.Ok("Subtema creado.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblSubtemasEstado.Text = $"✗ Error {res.Codigo} al crear el subtema: {detalle}";
+                lblSubtemasEstado.Text = res.Error("crear el subtema");
             }
         }
         catch (Exception ex) { lblSubtemasEstado.Text = $"✗ No se pudo crear el subtema: {ex.Message}"; }
@@ -2565,12 +3453,11 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 await RecargarSubtemas();
-                lblSubtemasEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Subtema actualizado." : res.Mensaje)}";
+                lblSubtemasEstado.Text = res.Ok("Subtema actualizado.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblSubtemasEstado.Text = $"✗ Error {res.Codigo} al editar el subtema: {detalle}";
+                lblSubtemasEstado.Text = res.Error("editar el subtema");
             }
         }
         catch (Exception ex) { lblSubtemasEstado.Text = $"✗ No se pudo editar el subtema: {ex.Message}"; }
@@ -2585,12 +3472,11 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 await RecargarSubtemas();
-                lblSubtemasEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Subtema eliminado." : res.Mensaje)}";
+                lblSubtemasEstado.Text = res.Ok("Subtema eliminado.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblSubtemasEstado.Text = $"✗ Error {res.Codigo} al eliminar el subtema: {detalle}";
+                lblSubtemasEstado.Text = res.Error("eliminar el subtema");
             }
         }
         catch (Exception ex) { lblSubtemasEstado.Text = $"✗ No se pudo eliminar el subtema: {ex.Message}"; }
@@ -2619,8 +3505,7 @@ public partial class DashboardWindow : Window
             if (!res.Exito)
             {
                 listaPreguntas.Items.Clear();
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblPreguntasEstado.Text = $"✗ Error {res.Codigo} al listar preguntas: {detalle}";
+                lblPreguntasEstado.Text = res.Error("listar preguntas");
                 return;
             }
             var array = JArray.Parse(res.Contenido);
@@ -2647,12 +3532,11 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 await RecargarPreguntas();
-                lblPreguntasEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Pregunta aprobada." : res.Mensaje)}";
+                lblPreguntasEstado.Text = res.Ok("Pregunta aprobada.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblPreguntasEstado.Text = $"✗ Error {res.Codigo} al aprobar (estadoId={EstadoAprobadaId}): {detalle}";
+                lblPreguntasEstado.Text = res.Error($"aprobar la pregunta (estadoId={EstadoAprobadaId})");
             }
         }
         catch (Exception ex) { lblPreguntasEstado.Text = $"✗ No se pudo aprobar la pregunta: {ex.Message}"; }
@@ -2666,8 +3550,7 @@ public partial class DashboardWindow : Window
             var det = await ApiService.GetResultAsync($"preguntas/{id}");
             if (!det.Exito)
             {
-                var d = string.IsNullOrWhiteSpace(det.Mensaje) ? det.Contenido : det.Mensaje;
-                lblPreguntasEstado.Text = $"✗ Error {det.Codigo} al abrir la pregunta: {d}";
+                lblPreguntasEstado.Text = det.Error("abrir la pregunta");
                 return;
             }
             var obj = JObject.Parse(det.Contenido);
@@ -2702,12 +3585,11 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 await RecargarPreguntas();
-                lblPreguntasEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Pregunta actualizada." : res.Mensaje)}";
+                lblPreguntasEstado.Text = res.Ok("Pregunta actualizada.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblPreguntasEstado.Text = $"✗ Error {res.Codigo} al editar la pregunta: {detalle}";
+                lblPreguntasEstado.Text = res.Error("editar la pregunta");
             }
         }
         catch (Exception ex) { lblPreguntasEstado.Text = $"✗ No se pudo editar la pregunta: {ex.Message}"; }
@@ -2723,12 +3605,11 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 await RecargarPreguntas();
-                lblPreguntasEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Pregunta eliminada." : res.Mensaje)}";
+                lblPreguntasEstado.Text = res.Ok("Pregunta eliminada.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblPreguntasEstado.Text = $"✗ Error {res.Codigo} al eliminar la pregunta: {detalle}";
+                lblPreguntasEstado.Text = res.Error("eliminar la pregunta");
             }
         }
         catch (Exception ex) { lblPreguntasEstado.Text = $"✗ No se pudo eliminar la pregunta: {ex.Message}"; }
@@ -2799,46 +3680,41 @@ public partial class DashboardWindow : Window
         return fila;
     }
 
-    // Editar materia: PUT /api/Materias/{id} con { nombre, activa } y refresco.
+    // Editar materia: PUT api/Materias/{id} con { nombre, activa }. Valida y guarda dentro del
+    // diálogo: si algo falla, el diálogo sigue abierto con lo escrito.
     private async void EditarMateria(int id, string nombreActual, bool activaActual)
     {
+        string? mensaje = null;
         var datos = DialogoCampos("Editar materia",
-            new[] { ("Nombre", nombreActual) }, "Materia activa", activaActual);
-        if (datos is null) return;            // el usuario canceló
-
-        var (valores, activa) = datos.Value;
-        var nuevo = valores[0];
-        if (string.IsNullOrWhiteSpace(nuevo))
-        {
-            lblMateriasEstado.Text = "✗ El nombre de la materia no puede quedar vacío.";
-            return;
-        }
-
-        try
-        {
-            var res = await ApiService.PutAsync($"{Rutas.Materias}/{id}", new { nombre = nuevo, activa = activa });
-
-            if (res.Exito)
+            new[] { ("Nombre", nombreActual) }, "Materia activa", activaActual,
+            async (valores, activa) =>
             {
-                await RecargarMaterias(); // refresca la lista
-                lblMateriasEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Materia actualizada." : res.Mensaje)}";
-            }
-            else
-            {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblMateriasEstado.Text = $"✗ Error {res.Codigo} al editar la materia: {detalle}";
-            }
-        }
-        catch (Exception ex)
-        {
-            lblMateriasEstado.Text = $"✗ No se pudo editar la materia: {ex.Message}";
-        }
+                var nombre = Validacion.Limpiar(valores[0]);
+                var error = ErrorMateria(nombre, id);
+                if (error != null) return error;
+                if (activaActual && !activa
+                    && !Confirmar("Desactivar materia", $"¿Desactivar la materia \"{nombre}\"?", "Sí, desactivar",
+                        "Dejará de ofrecerse para asignar clases nuevas. No se borra nada.", "BtnPrimario"))
+                    return "";
+
+                var res = await ApiService.PutAsync($"{Rutas.Materias}/{id}", new { nombre = nombre, activa = activa });
+                if (!res.Exito) return res.Error("guardar la materia");
+                mensaje = res.Ok("Materia actualizada.");
+                return null;
+            }, new[] { Validacion.MaxMateria });
+        if (datos is null) return; // el usuario canceló
+
+        await RecargarMaterias(); // refresca la lista
+        lblMateriasEstado.Text = mensaje ?? "✓ Materia actualizada.";
     }
 
-    // Eliminar materia: DELETE /api/Materias/{id} (con confirmación) y refresco.
+    // Eliminar materia: DELETE api/Materias/{id} (con confirmación) y refresco.
     private async void EliminarMateria(int id, string nombre)
     {
-        if (!Confirmar("Eliminar materia", $"¿Eliminar la materia \"{nombre}\"?")) return;
+        if (!Confirmar("Eliminar materia", $"¿Eliminar la materia \"{nombre}\"?", "Sí, eliminar",
+                "Esta acción no se puede deshacer. Si la materia ya tiene temas, actividades o clases, " +
+                "la base no permitirá borrarla: en ese caso desactívala con «Editar»."))
+            return;
 
         try
         {
@@ -2847,12 +3723,11 @@ public partial class DashboardWindow : Window
             if (res.Exito)
             {
                 await RecargarMaterias(); // refresca la lista
-                lblMateriasEstado.Text = $"✓ {(string.IsNullOrWhiteSpace(res.Mensaje) ? "Materia eliminada." : res.Mensaje)}";
+                lblMateriasEstado.Text = res.Ok("Materia eliminada.");
             }
             else
             {
-                var detalle = string.IsNullOrWhiteSpace(res.Mensaje) ? res.Contenido : res.Mensaje;
-                lblMateriasEstado.Text = $"✗ Error {res.Codigo} al eliminar la materia: {detalle}";
+                lblMateriasEstado.Text = res.Error("eliminar la materia");
             }
         }
         catch (Exception ex)

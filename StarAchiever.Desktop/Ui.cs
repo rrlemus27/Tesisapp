@@ -188,6 +188,43 @@ public static class Ui
         return btn;
     }
 
+    // Indicador de carga para el contenido de un botón: un arco que gira + el texto.
+    public static UIElement Cargando(string texto, Brush color)
+    {
+        var giro = new RotateTransform();
+        var arco = new System.Windows.Shapes.Path
+        {
+            Data = Geometry.Parse("M 8,1 A 7,7 0 1 1 1,8"),
+            Stroke = color,
+            StrokeThickness = 2.4,
+            StrokeStartLineCap = PenLineCap.Round,
+            StrokeEndLineCap = PenLineCap.Round,
+            Width = 17,
+            Height = 17,
+            VerticalAlignment = VerticalAlignment.Center,
+            RenderTransformOrigin = new Point(0.5, 0.5),
+            RenderTransform = giro
+        };
+        giro.BeginAnimation(RotateTransform.AngleProperty, new System.Windows.Media.Animation.DoubleAnimation
+        {
+            From = 0,
+            To = 360,
+            Duration = TimeSpan.FromSeconds(0.9),
+            RepeatBehavior = System.Windows.Media.Animation.RepeatBehavior.Forever
+        });
+
+        var panel = new StackPanel { Orientation = Orientation.Horizontal };
+        panel.Children.Add(arco);
+        panel.Children.Add(new TextBlock
+        {
+            Text = texto,
+            Foreground = color,
+            Margin = new Thickness(10, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        return panel;
+    }
+
     // Hace que una fila se pueda elegir con un clic (resaltándola al pasar el mouse).
     // Los clics sobre los botones de la fila no cuentan como selección.
     public static void HacerClicable(Border fila, Action alElegir)

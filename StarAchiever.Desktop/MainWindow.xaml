@@ -6,6 +6,34 @@
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         FontFamily="{StaticResource FuenteApp}" Foreground="{StaticResource NavyBrush}">
 
+    <Window.Resources>
+        <!-- Botón de icono (ojo de la contraseña): transparente, menta al pasar el mouse. -->
+        <Style x:Key="BtnOjo" TargetType="Button">
+            <Setter Property="Width" Value="36"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Foreground" Value="{StaticResource ApagadoBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="Transparent" CornerRadius="18">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="Background" Value="{StaticResource MentaBrush}"/>
+                                <Setter Property="Foreground" Value="{StaticResource TealOscuroBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.5"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </Window.Resources>
+
     <Grid Margin="16">
         <!-- Sombra de la ventana (en un borde aparte, detrás del contenido) -->
         <Border CornerRadius="28" Background="{StaticResource FondoBrush}" Effect="{StaticResource SombraVentana}"/>
@@ -126,11 +154,25 @@
                                TextWrapping="Wrap" Margin="0,4,0,28"/>
 
                     <TextBlock Text="Usuario o correo" Style="{StaticResource Etiqueta}"/>
-                    <TextBox x:Name="txtUsuario" MinHeight="52" FontSize="15"
+                    <TextBox x:Name="txtUsuario" MinHeight="52" FontSize="15" MaxLength="120"
                              Tag="Escribe tu usuario o correo"/>
 
                     <TextBlock Text="Contraseña" Style="{StaticResource Etiqueta}" Margin="2,18,0,6"/>
-                    <PasswordBox x:Name="txtClave" MinHeight="52" FontSize="15"/>
+                    <!-- La contraseña se escribe en el PasswordBox; el ojo la muestra en un TextBox
+                         superpuesto (y la vuelve a ocultar). Solo uno de los dos está visible. -->
+                    <Grid>
+                        <PasswordBox x:Name="txtClave" MinHeight="52" FontSize="15" MaxLength="128"
+                                     Padding="14,0,52,0"/>
+                        <TextBox x:Name="txtClaveVisible" MinHeight="52" FontSize="15" MaxLength="128"
+                                 Padding="14,0,52,0" FontWeight="Normal" IsUndoEnabled="False"
+                                 Visibility="Collapsed"/>
+                        <Button x:Name="btnVerClave" HorizontalAlignment="Right" Margin="0,0,9,0"
+                                Style="{StaticResource BtnOjo}" Focusable="False"
+                                Click="VerClave_Click" ToolTip="Mostrar contraseña">
+                            <TextBlock x:Name="icoVerClave" Text="&#xE7B3;" FontSize="16"
+                                       FontFamily="Segoe Fluent Icons, Segoe MDL2 Assets"/>
+                        </Button>
+                    </Grid>
 
                     <Border x:Name="brdError" Style="{StaticResource CajaEstado}" Margin="0,16,0,0"
                             Background="{StaticResource CoralSuaveBrush}" BorderBrush="{StaticResource CoralBrush}"
@@ -141,9 +183,11 @@
                     <Button x:Name="btnLogin" Content="Ingresar" Height="54" FontSize="16" Margin="0,26,0,0"
                             Style="{StaticResource BtnPrimario}" IsDefault="True" Click="Login_Click"/>
 
+                    <!-- Estado real de la API (GET api/health al abrir la ventana). -->
                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,20,0,0">
-                        <Ellipse Width="8" Height="8" Fill="{StaticResource VerdeBrush}" VerticalAlignment="Center"/>
-                        <TextBlock Text="Conectando con la API en localhost:7173" FontSize="12"
+                        <Ellipse x:Name="dotApi" Width="8" Height="8" Fill="{StaticResource ApagadoBrush}"
+                                 VerticalAlignment="Center"/>
+                        <TextBlock x:Name="lblApi" Text="Comprobando la conexión con la API…" FontSize="12"
                                    Foreground="{StaticResource ApagadoBrush}" Margin="8,0,0,0"/>
                     </StackPanel>
                 </StackPanel>
